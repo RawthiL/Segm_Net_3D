@@ -1,10 +1,12 @@
 # TensorFlow 3-D Segmentation Networks Library #
 
-This library is at the moment an implementation of a 3-D U-net using dice loss and batch normalization, implemented in TensorFlow. The idea is to keep on adding network topologies...
+This library contains at the moment:
+* 3-D U-net (or V-net) using dice loss and batch normalization
+* 3-D Convolutional Autoencoder using dice loss/crossentropy and batch normalization
 
-### How do I get set up? ###
+### How do I set it up? ###
 
-* You need TensorFlow obviously and GPU (recomended)
+* TensorFlow 1.12 (GPU recomended)
 * Configuration: Just import it
 * Dependencies: Numpy, skimage (for shape generation in example)
 * How to run tests:
