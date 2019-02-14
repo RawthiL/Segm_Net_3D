@@ -10,6 +10,16 @@ from skimage import filters
 
 from collections import OrderedDict
 
+
+
+import multiprocessing
+import math
+from scipy import ndimage
+from skimage import measure
+
+from joblib import Parallel, delayed
+import multiprocessing
+
 #-----------------------------------------------------------------------------#
 #--------------- Functions that create the diferent volume shapes ------------#
 #-----------------------------------------------------------------------------#
@@ -393,8 +403,213 @@ def fun_gen_batch(cant_cubos, tam_vol_poblar, noise_max, cantidad_elementos, mar
         
     return (batch_vols, batch_labels)
 
+
+
+
+
+#-----------------------------------------------------------------------------#
+#--------------- Random Volume Transformation --------------------------------#
+#-----------------------------------------------------------------------------#
+
+
+# http://nbviewer.jupyter.org/gist/lhk/f05ee20b5a826e4c8b9bb3e528348688
+# http://www.lfd.uci.edu/~gohlke/code/transformations.py.html
+
+def unit_vector(data, axis=None, out=None):
+   
+    if out is None:
+        data = np.array(data, dtype=np.float64, copy=True)
+        if data.ndim == 1:
+            data /= math.sqrt(np.dot(data, data))
+            return data
+    else:
+        if out is not data:
+            out[:] = np.array(data, copy=False)
+        data = out
+    length = np.atleast_1d(np.sum(data*data, axis))
+    np.sqrt(length, length)
+    if axis is not None:
+        length = np.expand_dims(length, axis)
+    data /= length
+    if out is None:
+        return data
+
+
+def rotation_matrix(angle, direction, point=None):
+    
+    sina = math.sin(angle)
+    cosa = math.cos(angle)
+    direction = unit_vector(direction[:3])
+    # rotation matrix around unit vector
+    R = np.diag([cosa, cosa, cosa])
+    R += np.outer(direction, direction) * (1.0 - cosa)
+    direction *= sina
+    R += np.array([[ 0.0,         -direction[2],  direction[1]],
+                      [ direction[2], 0.0,          -direction[0]],
+                      [-direction[1], direction[0],  0.0]])
+    M = np.identity(4)
+    M[:3, :3] = R
+    if point is not None:
+        # rotation not around origin
+        point = np.array(point[:3], dtype=np.float64, copy=False)
+        M[:3, 3] = point - np.dot(R, point)
+    return M
+
+
+
+def rotate_mesh(input_mesh, size_fov, angle, direction):
+    
+    # stack the meshgrid to position vectors, center them around 0 by substracting dim/2
+    xyz=np.vstack([input_mesh[0].reshape(-1)-float(size_fov[0])/2,     # x coordinate, centered
+    input_mesh[1].reshape(-1)-float(size_fov[1])/2,     # y coordinate, centered
+    input_mesh[2].reshape(-1)-float(size_fov[2])/2,     # z coordinate, centered
+    np.ones((size_fov[0],size_fov[1],size_fov[2])).reshape(-1)])    # 1 for homogeneous coordinates
     
     
+    # create transformation matrix
+    mat=rotation_matrix(angle,direction)
+    
+    
+    # apply transformation
+    transformed_xyz=np.dot(mat, xyz)
+    
+    # extract coordinates, don't use transformed_xyz[3,:] that's the homogeneous coordinate, always 1
+    x=transformed_xyz[0,:]+float(size_fov[0])/2
+    y=transformed_xyz[1,:]+float(size_fov[1])/2
+    z=transformed_xyz[2,:]+float(size_fov[2])/2
+    
+    x=x.reshape((size_fov[0],size_fov[1],size_fov[2]))
+    y=y.reshape((size_fov[0],size_fov[1],size_fov[2]))
+    z=z.reshape((size_fov[0],size_fov[1],size_fov[2]))
+
+    return [x,y,z]
+
+
+
+def ripple_mesh(input_mesh, size_fov, max_ripple, wave_peak, wave_periode):
+    
+    # Create a volumetric rippled fov
+
+    # Aux Volume
+    rip_vol = np.zeros((size_fov[0], size_fov[1], size_fov[2]))
+
+    # Create an uniform grid
+    ax = OrderedDict()
+    ax[0] = np.arange(size_fov[0]).astype(np.float32)
+    ax[1] = np.arange(size_fov[1]).astype(np.float32)
+    ax[2] = np.arange(size_fov[2]).astype(np.float32)
+
+    # First implement the sine across all axis
+    aux_sins = OrderedDict()
+    for i in range(0,3):
+        aux_sins[i] = np.multiply(wave_peak[i],np.sin(ax[i]/wave_periode[i]))
+
+    # X-axis
+    x_xpand = np.expand_dims(np.expand_dims(aux_sins[0], axis=(1)), axis=(1))
+    x_rip_vol = np.tile(x_xpand, (1,240,155))
+    # Y-axis
+    y_xpand = np.expand_dims(np.expand_dims(aux_sins[1], axis=(1)), axis=(0))
+    y_rip_vol = np.tile(y_xpand, (240,1,155))
+    # X-axis
+    z_xpand = np.expand_dims(np.expand_dims(aux_sins[2], axis=(0)), axis=(0))
+    z_rip_vol = np.tile(z_xpand, (240,240,1))
+
+    # Compose
+    rip_vol = np.multiply(np.multiply(x_xpand,y_xpand),z_xpand)
+
+    # Re-scale
+    rip_vol = np.divide(rip_vol,rip_vol.max())
+    rip_vol = np.multiply(rip_vol,max_ripple)
+
+    # apply
+    input_mesh[0] += rip_vol
+    input_mesh[1] += rip_vol
+    input_mesh[2] += rip_vol
+    
+    x=input_mesh[0].reshape((size_fov[0],size_fov[1],size_fov[2]))
+    y=input_mesh[1].reshape((size_fov[0],size_fov[1],size_fov[2]))
+    z=input_mesh[2].reshape((size_fov[0],size_fov[1],size_fov[2]))
+    
+    return [x,y,z]
+    
+    
+
+
+def random_ripple_and_rotation(input_vol, max_ripple_range, wave_periode_range, spline_order, num_cores=multiprocessing.cpu_count(), multi_channel=False):
+    
+    
+    # Random max ripple
+    ripple_val = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    
+    # Random wave peaks
+    wave_peak = np.zeros((3))
+    wave_peak[0] = rnd.uniform(0,1)
+    wave_peak[1] = rnd.uniform(0,1)
+    wave_peak[2] = rnd.uniform(0,1)
+    
+    # Random wave periods
+    wave_period = np.zeros((3))
+    wave_period[0] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    wave_period[1] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    wave_period[2] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    
+    # Random rotate angle
+    rot_angle = rnd.uniform(-np.pi/4,np.pi/4)
+    
+    # Random rotate direction (the unity norm is handled by "unit_vector" )
+    rot_dir = np.zeros((3))
+    rot_dir[0] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    rot_dir[1] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    rot_dir[2] = rnd.uniform(max_ripple_range[0], max_ripple_range[1])
+    
+    # Get input shape
+    size_fov = input_vol.shape
+    if multi_channel:
+        channels = size_fov[0]
+        size_fov = size_fov[1:4]
+    
+    # Create an uniform grid
+    ax_x = np.arange(size_fov[0]).astype(np.float32)
+    ax_y = np.arange(size_fov[1]).astype(np.float32)
+    ax_z = np.arange(size_fov[2]).astype(np.float32)
+    
+    aux_mesh = np.meshgrid(ax_x,ax_y,ax_z)
+    
+    # Rotate the mesh
+    aux_mesh = rotate_mesh(aux_mesh, size_fov, rot_angle, rot_dir)
+
+    # Ripple the mesh
+    aux_mesh = ripple_mesh(aux_mesh, size_fov, ripple_val, wave_peak, wave_period)
+
+    # the coordinate system seems to be strange, it has to be ordered like this
+    aux_mesh=[aux_mesh[1],aux_mesh[0],aux_mesh[2]]
+    
+    # Re-sample
+    if multi_channel:
+        # To make this faster we paralellize the operation
+        new_vol = np.zeros((channels,size_fov[0],size_fov[1],size_fov[2]))
+        par_results =  Parallel(n_jobs=num_cores)(delayed(fun_multiple_map_coordinates)
+                                              (size_fov=size_fov,
+                                               input_vol=input_vol,
+                                               aux_mesh = aux_mesh,
+                                               spline_order = spline_order,
+                                               num_vol = i) for i in range(0, channels))
+        # Collect results
+        for idx_ch in range(channels):
+            new_vol[idx_ch,:,:,:] = par_results[idx_ch]
+        
+    else:
+        new_vol=scipy.ndimage.map_coordinates(input_vol,aux_mesh, order=spline_order)
+    
+    return new_vol
+
+    
+
+def fun_multiple_map_coordinates(size_fov, input_vol, aux_mesh, spline_order, num_vol):
+    # https://bic-berkeley.github.io/psych-214-fall-2016/map_coordinates.html
+    new_vol = np.zeros((size_fov[0],size_fov[1],size_fov[2]))
+    new_vol= ndimage.map_coordinates(input_vol[num_vol,:,:,:],aux_mesh, order=spline_order)
+    return new_vol
     
     
     

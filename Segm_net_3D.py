@@ -14,13 +14,16 @@ import Geometrias_3D as geo3D
 #--------------- Variable generation -----------------------------------------#
 #-----------------------------------------------------------------------------#
 
-def weight_variable(shape):
+def weight_variable(shape, nombre):
     initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
+    #return tf.Variable(initial)
+    return tf.get_variable(nombre, dtype=tf.float32, initializer=initial)
 
-def bias_variable(shape):
+
+def bias_variable(shape, nombre):
     initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial)
+    #return tf.Variable(initial)
+    return tf.get_variable(nombre, dtype=tf.float32, initializer=initial)
 
 
 #-----------------------------------------------------------------------------#
@@ -51,46 +54,49 @@ def conv3d_up(x, W):
         return tf.nn.conv3d_transpose(x, W, output_shape, strides=[1, paso, paso, paso, 1], padding='SAME')
 
 # 3D Convolutional layer
-def nn_3D_ReLu_conv_layer(input_tensor, input_size, output_size, filt_size, phase):
+def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, layer_name, non_linear_function = tf.nn.relu):
     # Weight creation
     with tf.name_scope('weights'):
-        W = weight_variable([filt_size[0], filt_size[1], filt_size[2], input_size, output_size])
+        W = weight_variable([filt_size[0], filt_size[1], filt_size[2], input_size, output_size], layer_name+'_weights')
         variable_summaries(W)
     # Bias creation
     with tf.name_scope('biases'):
-        b = bias_variable([output_size])
+        b = bias_variable([output_size], layer_name+'_biases')
         variable_summaries(b)
     # 3D Convolution operation
     h_conv= conv3d_fine(input_tensor, W)
     # Batch normalization
     h_BN = tf.layers.batch_normalization(tf.nn.bias_add(h_conv, b), training=phase);
-    # RELU neuron
-    h_relu = tf.nn.relu(h_BN)
-    return h_relu
+    # Alineality
+    if non_linear_function == None:
+        h_alin = h_BN
+    else:
+        h_alin = non_linear_function(h_BN)
+    return h_alin
     
 
 #-----------------------------------------------------------------------------#
 #--------------- 3D Segmentation Network Levels ------------------------------#
 #-----------------------------------------------------------------------------#
     
-def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name):   
+def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First convolution layer creation 
-        h[0] = nn_3D_ReLu_conv_layer(input_tensor, input_size, internal_size, filt_size, phase)
+        h[0] = nn_3D_conv_layer(input_tensor, input_size, internal_size, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_ReLu_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
                 
         h_relu = h[N_conv-1]
             
         # After creating all internal layers, we perform the down-convolution
         # Weight creation
         with tf.name_scope('weights_down'):
-            W = weight_variable([2, 2, 2, internal_size, internal_size])
+            W = weight_variable([2, 2, 2, internal_size, internal_size], layer_name+'_weights_down_weights')
             variable_summaries(W)
         # Down-convolution
         h_out = conv3d_down(h_relu, W)
@@ -99,24 +105,24 @@ def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size,
         # the last output tensor of "internal_size", used in the ascending levels
         return (h_out, h_relu)
     
-def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name):   
+def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First the convolution layer creation 
-        h[0] = nn_3D_ReLu_conv_layer(input_tensor, input_size, internal_size, filt_size, phase)
+        h[0] = nn_3D_conv_layer(input_tensor, input_size, internal_size, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_ReLu_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
                 
         h_relu = h[N_conv-1]
 
         # After creating all internal layers, we perform the up-convolution
         # Weight creation
         with tf.name_scope('weights_up'):
-            W = weight_variable([2, 2, 2, internal_size//2, internal_size])
+            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
             variable_summaries(W)
         # Up-convolution
         h_out = conv3d_up(h_relu, W)
@@ -126,26 +132,26 @@ def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase
         return (h_out, h_relu)
     
     
-def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, detail_tensor, phase, layer_name):   
+def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, detail_tensor, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First the input must be concatenated with the detal vector
         h_cat = tf.concat([detail_tensor, input_tensor], 4) 
         # Now the convolution layer creation 
-        h[0] = nn_3D_ReLu_conv_layer(h_cat, input_size, internal_size, filt_size, phase)
+        h[0] = nn_3D_conv_layer(h_cat, input_size, internal_size, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_ReLu_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
             
         h_relu = h[N_conv-1]
         
         # After creating all internal layers, we perform the up-convolution
         # Weight creation
-        with tf.name_scope('weights_up'):
-            W = weight_variable([2, 2, 2, internal_size//2, internal_size])
+        with tf.name_scope(layer_name+'weights_up'):
+            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name, layer_name+'_weights_up_weights')
             variable_summaries(W)
         # Up-convolution
         h_out = conv3d_up(h_relu, W)
@@ -155,17 +161,17 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
         return (h_out, h_relu)
     
     
-def Segmentation_layer(N_conv, filt_size, input_tensor, input_size, num_clases, phase, layer_name):   
+def Segmentation_layer(N_conv, filt_size, input_tensor, input_size, num_clases, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First the convolution layer creation 
-        h[0] = nn_3D_ReLu_conv_layer(input_tensor, input_size, num_clases, filt_size, phase)
+        h[0] = nn_3D_conv_layer(input_tensor, input_size, num_clases, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_ReLu_conv_layer(h[i-1], num_clases, num_clases, filt_size, phase)      
+                h[i] = nn_3D_conv_layer(h[i-1], num_clases, num_clases, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
         # Finally we return the segmentation maps
         return (h[N_conv-1])
     
@@ -174,7 +180,7 @@ def Segmentation_layer(N_conv, filt_size, input_tensor, input_size, num_clases, 
 #--------------- Network Levels Building -------------------------------------#
 #-----------------------------------------------------------------------------#
 
-def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, size_filt_fine, size_filt_out, network_depth, net_channels_down, net_layers_down, net_channels_base, net_layers_base, net_channels_up, net_layers_up, net_channels_segm):
+def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, size_filt_fine, size_filt_out, network_depth, net_channels_down, net_layers_down, net_channels_base, net_layers_base, net_channels_up, net_layers_up, net_channels_segm, all_outs = False):
 
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
@@ -264,7 +270,10 @@ def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, si
 
         
     # And we return the network topology
-    return soft_out
+    if all_outs:
+        return soft_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up, h_relu_out
+    else:
+        return soft_out
 
     
 #-----------------------------------------------------------------------------#
