@@ -151,7 +151,7 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
         # After creating all internal layers, we perform the up-convolution
         # Weight creation
         with tf.name_scope(layer_name+'weights_up'):
-            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name, layer_name+'_weights_up_weights')
+            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
             variable_summaries(W)
         # Up-convolution
         h_out = conv3d_up(h_relu, W)
