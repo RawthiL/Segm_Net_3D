@@ -13,7 +13,7 @@ import Segm_net_3D as segm3D
 #--------------- 3D Autoencoder Network Levels -------------------------------#
 #-----------------------------------------------------------------------------#
     
-def Encode_level(N_fc, units_size, input_tensor, internal_size, phase, layer_name, non_lin_func = tf.nn.relu):
+def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
@@ -23,114 +23,174 @@ def Encode_level(N_fc, units_size, input_tensor, internal_size, phase, layer_nam
         #input_flat = tf.layers.Flatten()(input_tensor)
         input_flat = tf.contrib.layers.flatten(input_tensor)
         
-        h_aux = tf.layers.dense(input_flat,
-                               internal_size,
-                               activation=non_lin_func,
-                               use_bias=True,
-                               kernel_initializer=None,
-                               bias_initializer=tf.zeros_initializer(),
-                               kernel_regularizer=None,
-                               bias_regularizer=None,
-                               activity_regularizer=None,
-                               #kernel_constraint=None,
-                               #bias_constraint=None,
-                               trainable=True,
-                               name=layer_name+'FC_0',
-                               reuse=None)
-
-        h[0] = tf.layers.batch_normalization(h_aux, training=phase)
         
-        
-        # If there are mores layers in this level, lets create them
         if N_fc > 1:
-            for i in range(1,N_fc):
-                # Convolutional layer creation
-                h_aux = tf.layers.dense(h[i-1],
-                               internal_size,
-                               activation=non_lin_func,
-                               use_bias=True,
-                               kernel_initializer=None,
-                               bias_initializer=tf.zeros_initializer(),
-                               kernel_regularizer=None,
-                               bias_regularizer=None,
-                               activity_regularizer=None,
-                               #kernel_constraint=None,
-                               #bias_constraint=None,
-                               trainable=True,
-                               name=layer_name+'FC_%d'%i,
-                               reuse=None)
-                h[i] = tf.layers.batch_normalization(h_aux, training=phase)
-                
-        h_relu = h[N_fc-1]
+            h_aux = tf.layers.dense(input_flat,
+                                   internal_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_0',
+                                   reuse=None)
+
+            h[0] = tf.layers.batch_normalization(h_aux, training=phase)
+
+
+            # If there are mores layers in this level, lets create them
+            if N_fc > 2:
+                for i in range(1,N_fc-1):
+                    # Convolutional layer creation
+                    h_aux = tf.layers.dense(h[i-1],
+                                   internal_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_%d'%i,
+                                   reuse=None)
+                    h[i] = tf.layers.batch_normalization(h_aux, training=phase)
+            
+            # Last code level
+            h_aux = tf.layers.dense(h[N_fc-2],
+                                    code_size,
+                                    activation=non_lin_func,
+                                    use_bias=True,
+                                    kernel_initializer=None,
+                                    bias_initializer=tf.zeros_initializer(),
+                                    kernel_regularizer=None,
+                                    bias_regularizer=None,
+                                    activity_regularizer=None,
+                                    #kernel_constraint=None,
+                                    #bias_constraint=None,
+                                    trainable=True,
+                                    name=layer_name+'FC_CODE',
+                                    reuse=None)
+            h_relu = tf.layers.batch_normalization(h_aux, training=phase)
+            
+        
+        # Single layer
+        else:
+            h_aux = tf.layers.dense(input_flat,
+                                   code_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_0_CODE',
+                                   reuse=None)
+
+            h_relu = tf.layers.batch_normalization(h_aux, training=phase)
 
         # Finaly we return the code
         return (h_relu)
     
-def Decode_level(N_fc, units_size, code_tensor, out_shape, phase, layer_name, non_lin_func = tf.nn.relu):
+def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name, non_lin_func = tf.nn.relu):
     
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         
-        # First the operation layer creation 
-        h_aux = tf.layers.dense(code_tensor,
-                               units_size,
-                               activation=non_lin_func,
-                               use_bias=True,
-                               kernel_initializer=None,
-                               bias_initializer=tf.zeros_initializer(),
-                               kernel_regularizer=None,
-                               bias_regularizer=None,
-                               activity_regularizer=None,
-                               #kernel_constraint=None,
-                               #bias_constraint=None,
-                               trainable=True,
-                               name=layer_name+'FC_0',
-                               reuse=None)
-
-        h[0] = tf.layers.batch_normalization(h_aux, training=phase)
-        
-        # If there are mores layers in this level, lets create them
         if N_fc > 1:
-            for i in range(1,N_fc):
-                # Convolutional layer creation
-                h_aux = tf.layers.dense(h[i-1],
-                               units_size,
-                               activation=non_lin_func,
-                               use_bias=True,
-                               kernel_initializer=None,
-                               bias_initializer=tf.zeros_initializer(),
-                               kernel_regularizer=None,
-                               bias_regularizer=None,
-                               activity_regularizer=None,
-                               #kernel_constraint=None,
-                               #bias_constraint=None,
-                               trainable=True,
-                               name=layer_name+'FC_%d'%i,
-                               reuse=None)
-                h[i] = tf.layers.batch_normalization(h_aux, training=phase)
-        
-        
-        # Finally the expansion layer
-        expand_size = out_shape[1]*out_shape[2]*out_shape[3]*out_shape[4] # Size of the low-res image
-        h_aux = tf.layers.dense(h[N_fc-1],
-                               expand_size,
-                               activation=non_lin_func,
-                               use_bias=True,
-                               kernel_initializer=None,
-                               bias_initializer=tf.zeros_initializer(),
-                               kernel_regularizer=None,
-                               bias_regularizer=None,
-                               activity_regularizer=None,
-                               #kernel_constraint=None,
-                               #bias_constraint=None,
-                               trainable=True,
-                               name=layer_name+'FC_EXPAND',
-                               reuse=None)
-        h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
-        
-        # Reshape into low-resolution multichannel volume
-        h_decode = tf.reshape(h_relu, out_shape)
+            # First the operation layer creation 
+            h_aux = tf.layers.dense(code_tensor,
+                                   internal_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_0',
+                                   reuse=None)
+
+            h[0] = tf.layers.batch_normalization(h_aux, training=phase)
+
+            # If there are mores layers in this level, lets create them
+            if N_fc > 2:
+                for i in range(1,N_fc-1):
+                    # Convolutional layer creation
+                    h_aux = tf.layers.dense(h[i-1],
+                                   internal_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_%d'%i,
+                                   reuse=None)
+                    h[i] = tf.layers.batch_normalization(h_aux, training=phase)
+
+
+            # Finally the expansion layer
+            expand_size = out_shape[1]*out_shape[2]*out_shape[3]*out_shape[4] # Size of the low-res image
+            h_aux = tf.layers.dense(h[N_fc-2],
+                                   expand_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_EXPAND',
+                                   reuse=None)
+            h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+
+            # Reshape into low-resolution multichannel volume
+            h_decode = tf.reshape(h_relu, out_shape)
+            
+        # Single layer
+        else:
+            expand_size = out_shape[1]*out_shape[2]*out_shape[3]*out_shape[4] # Size of the low-res image
+            h_aux = tf.layers.dense(code_tensor,
+                                   expand_size,
+                                   activation=non_lin_func,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name=layer_name+'FC_0_EXPAND',
+                                   reuse=None)
+            h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+
+            # Reshape into low-resolution multichannel volume
+            h_decode = tf.reshape(h_relu, out_shape)
 
         # Finaly we return the decoded low-res volume
         return (h_decode)
@@ -151,10 +211,16 @@ def Assemble_Autoencoder(ph_entry,
                          network_depth, 
                          net_channels_down, 
                          net_layers_down, 
-                         net_channels_base, 
                          net_channels_up, 
                          net_layers_up, 
                          net_layers_output,
+                         
+                         net_layers_encode,
+                         net_neurons_encode, 
+                         code_size,
+                         net_layers_decode,
+                         net_neurons_decode,
+                         
                          fullycon_code = False,
                          all_outs = False):
 
@@ -193,12 +259,13 @@ def Assemble_Autoencoder(ph_entry,
         
     # # Encode Level
     if fullycon_code:
-        h_code = Encode_level(net_layers_encode[0], 
-                               encode_units_size, 
+        h_code = Encode_level(net_layers_encode[0],  
                                h_down[network_depth-1], 
-                               net_channels_base[0], 
+                               net_neurons_encode[0], 
+                               code_size[0],
                                phase, 
                                "Encode_Level")
+        
     else:
         h_code = h_down[network_depth-1]
 
@@ -210,16 +277,16 @@ def Assemble_Autoencoder(ph_entry,
     if fullycon_code:
         # Calculate decoded low-res volume size
         out_size = [-1,
-                    int(input_size[0]/(size_filt_up[0]**(network_depth))),
-                    int(input_size[1]/(size_filt_up[1]**(network_depth))),
-                    int(input_size[2]/(size_filt_up[2]**(network_depth))),
+                    int(input_size[0]/(2**(network_depth))),
+                    int(input_size[1]/(2**(network_depth))),
+                    int(input_size[2]/(2**(network_depth))),
                     int(net_channels_down[-1])]
 
-        h_decode = Decode_level(net_layers_decode[0], 
-                                           decode_units_size, 
+        h_decode = Decode_level(net_layers_decode[0],  
                                            h_code, 
-                                           out_size, 
-                                           phase, 
+                                    net_neurons_encode[0],
+                                    out_size,
+                                          phase, 
                                            "Decode_Level")
     else:
         h_decode = h_code
