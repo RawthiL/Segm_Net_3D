@@ -161,18 +161,18 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
         return (h_out, h_relu)
     
     
-def Segmentation_layer(N_conv, filt_size, input_tensor, input_size, num_clases, phase, layer_name, non_lin_func = tf.nn.relu):
+def Output_layer(N_conv, filt_size, input_tensor, input_size, out_chanels, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First the convolution layer creation 
-        h[0] = nn_3D_conv_layer(input_tensor, input_size, num_clases, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
+        h[0] = nn_3D_conv_layer(input_tensor, input_size, out_chanels, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], num_clases, num_clases, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
-        # Finally we return the segmentation maps
+                h[i] = nn_3D_conv_layer(h[i-1], out_chanels, out_chanels, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
+        # Finally we return the output maps
         return (h[N_conv-1])
     
 
@@ -180,7 +180,104 @@ def Segmentation_layer(N_conv, filt_size, input_tensor, input_size, num_clases, 
 #--------------- Network Levels Building -------------------------------------#
 #-----------------------------------------------------------------------------#
 
-def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, size_filt_fine, size_filt_out, network_depth, net_channels_down, net_layers_down, net_channels_base, net_layers_base, net_channels_up, net_layers_up, net_channels_segm, all_outs = False):
+def Assemble_Tenxture_Network(ph_entry, 
+                                 phase, 
+                                 input_size, 
+                                 input_channels, 
+                                 size_filt_fine, 
+                                 size_filt_out,
+                                 network_depth, 
+                                 net_channels_down, 
+                                 net_layers_down, 
+                                 net_channels_base, 
+                                 net_layers_base, 
+                                 net_channels_up, 
+                                 net_layers_up, 
+                                 net_layers_output,
+                                 num_textures = 1 ):
+    
+    # Get basic V-Net Structure
+    v_out = Assemble_Network(ph_entry, 
+                         phase, 
+                         input_size, 
+                         input_channels, 
+                         num_textures, 
+                         size_filt_fine, 
+                         size_filt_out,
+                         network_depth, 
+                         net_channels_down, 
+                         net_layers_down, 
+                         net_channels_base, 
+                         net_layers_base, 
+                         net_channels_up, 
+                         net_layers_up, 
+                         net_layers_output, 
+                         all_outs = False) 
+    
+    with tf.name_scope('sigmoid_node'):
+        soft_out = tf.nn.sigmoid(v_out)
+        
+    return soft_out
+
+
+
+
+def Assemble_Segmentation_Network(ph_entry, 
+                                 phase, 
+                                 input_size, 
+                                 input_channels, 
+                                 num_clases, 
+                                 size_filt_fine, 
+                                 size_filt_out,
+                                 network_depth, 
+                                 net_channels_down, 
+                                 net_layers_down, 
+                                 net_channels_base, 
+                                 net_layers_base, 
+                                 net_channels_up, 
+                                 net_layers_up, 
+                                 net_layers_segm):
+    
+    # Get basic V-Net Structure
+    v_out = Assemble_Network(ph_entry, 
+                         phase, 
+                         input_size, 
+                         input_channels, 
+                         num_clases, 
+                         size_filt_fine, 
+                         size_filt_out,
+                         network_depth, 
+                         net_channels_down, 
+                         net_layers_down, 
+                         net_channels_base, 
+                         net_layers_base, 
+                         net_channels_up, 
+                         net_layers_up, 
+                         net_layers_segm, 
+                         all_outs = False) 
+    
+    with tf.name_scope('softmax_node'):
+        soft_out = tf.nn.softmax(v_out,-1)
+        
+    return soft_out
+
+
+def Assemble_Network(ph_entry, 
+                     phase, 
+                     input_size, 
+                     input_channels, 
+                     num_clases, 
+                     size_filt_fine, 
+                     size_filt_out,
+                     network_depth, 
+                     net_channels_down, 
+                     net_layers_down, 
+                     net_channels_base, 
+                     net_layers_base, 
+                     net_channels_up, 
+                     net_layers_up, 
+                     net_layers_output, 
+                     all_outs = False):
 
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
@@ -255,8 +352,8 @@ def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, si
                                                                           "Level_%d_up"%up_path_index)
 
     
-    # -- Finally we construct the segmentation layer
-    (h_relu_out) = Segmentation_layer(net_channels_segm[0], 
+    # -- Finally we construct the output layer
+    (h_relu_out) = Output_layer(net_layers_output[0], 
                                       size_filt_out, 
                                       h_relu_up[0], 
                                       net_channels_up[0], 
@@ -264,16 +361,15 @@ def Assemble_Network(ph_entry, phase, input_size, input_channels, num_clases, si
                                       phase, 
                                       "Output_level")
   
-    with tf.name_scope('softmax_node'):
-        soft_out = tf.nn.softmax(h_relu_out,-1)
+
 
 
         
     # And we return the network topology
     if all_outs:
-        return soft_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up, h_relu_out
+        return h_relu_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
     else:
-        return soft_out
+        return h_relu_out
 
     
 #-----------------------------------------------------------------------------#
