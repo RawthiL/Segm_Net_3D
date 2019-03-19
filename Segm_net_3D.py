@@ -215,9 +215,9 @@ def Assemble_Tenxture_Network(ph_entry,
                          all_outs = False) 
     
     with tf.name_scope('sigmoid_node'):
-        soft_out = tf.nn.sigmoid(v_out)
+        sigmoid_out = tf.nn.sigmoid(v_out)
         
-    return soft_out
+    return sigmoid_out, v_out
 
 
 
@@ -259,7 +259,7 @@ def Assemble_Segmentation_Network(ph_entry,
     with tf.name_scope('softmax_node'):
         soft_out = tf.nn.softmax(v_out,-1)
         
-    return soft_out
+    return soft_out, v_out
 
 
 def Assemble_Network(ph_entry, 
