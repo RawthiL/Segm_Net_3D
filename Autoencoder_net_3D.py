@@ -331,7 +331,7 @@ def Assemble_Autoencoder(ph_entry,
 
 
     # -- Finally we construct the output labels
-    (h_recon_raw) = segm3D.Segmentation_layer(net_layers_output[0], 
+    (h_recon_raw) = segm3D.Output_layer(net_layers_output[0], 
                                       size_filt_out, 
                                       h_up[0], 
                                       net_channels_up[0]//2, 
