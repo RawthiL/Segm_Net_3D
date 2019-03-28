@@ -202,34 +202,23 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
 #--------------- Network Levels Building -------------------------------------#
 #-----------------------------------------------------------------------------#
 
-def Assemble_Autoencoder(ph_entry, 
-                         phase, 
-                         input_size, 
-                         input_channels, 
-                         size_filt_fine, 
-                         size_filt_out, 
-                         network_depth, 
-                         net_channels_down, 
-                         net_layers_down, 
-                         net_channels_up, 
-                         net_layers_up, 
-                         net_layers_output,
-                         
-                         net_layers_encode,
-                         net_neurons_encode, 
-                         code_size,
-                         net_layers_decode,
-                         net_neurons_decode,
-                         
-                         fullycon_code = False,
-                         all_outs = False):
-
+def Assemble_Encoder(ph_entry,
+                     phase, 
+                     input_size, 
+                     input_channels, 
+                     size_filt_fine, 
+                     network_depth, 
+                     net_channels_down, 
+                     net_layers_down,                         
+                     net_layers_encode,
+                     net_neurons_encode, 
+                     code_size,                        
+                     fullycon_code = False,
+                     all_outs = False):
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
     # color channels
     x_vol = tf.reshape(ph_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
-    
-    # -- We first construct the encoder
     
     # First level:
     level_channels = net_channels_down[0]
@@ -271,7 +260,31 @@ def Assemble_Autoencoder(ph_entry,
 
         
        
-    # -- Now we construct the encoder
+   
+        
+    # And we return the network topology
+    if all_outs:
+        return h_down, h_relu_down, h_code
+    else:
+        return h_code
+    
+def Assemble_Decoder(h_code, 
+                     phase, 
+                     input_size, 
+                     input_channels, 
+                     size_filt_fine, 
+                     size_filt_out, 
+                     network_depth, 
+                     net_channels_down,
+                     net_channels_up, 
+                     net_layers_up, 
+                     net_layers_output,
+                     code_size,
+                     net_layers_decode,
+                     net_neurons_decode,
+                     net_neurons_encode,
+                     fullycon_code = False,
+                     all_outs = False):
     
     # # Decode or Base level
     if fullycon_code:
@@ -290,7 +303,6 @@ def Assemble_Autoencoder(ph_entry,
                                            "Decode_Level")
     else:
         h_decode = h_code
-
 
     # -- We start the upward path
 
@@ -343,10 +355,72 @@ def Assemble_Autoencoder(ph_entry,
     # Pass logits through sigmoid to get reconstructed image
     with tf.name_scope('softmax_node'):
         sigmoid_out = tf.nn.sigmoid(h_recon_raw)
+        
+    if all_outs:
+        return sigmoid_out, h_recon_raw, h_up, h_relu_up, h_decode
+    else:
+        return sigmoid_out, h_recon_raw
   
+
+def Assemble_Autoencoder(ph_entry, 
+                         phase, 
+                         input_size, 
+                         input_channels, 
+                         size_filt_fine, 
+                         size_filt_out, 
+                         network_depth, 
+                         net_channels_down, 
+                         net_layers_down, 
+                         net_channels_up, 
+                         net_layers_up, 
+                         net_layers_output,
+                         net_layers_encode,
+                         net_neurons_encode, 
+                         code_size,
+                         net_layers_decode,
+                         net_neurons_decode,
+                         fullycon_code = False,
+                         all_outs = False):
+    
+    # -- We first construct the encoder
+    with tf.variable_scope("Encoder"):
+        (h_down, h_relu_down, h_code) = Assemble_Encoder(ph_entry,
+                                                         phase, 
+                                                         input_size, 
+                                                         input_channels, 
+                                                         size_filt_fine, 
+                                                         network_depth, 
+                                                         net_channels_down, 
+                                                         net_layers_down,                         
+                                                         net_layers_encode,
+                                                         net_neurons_encode, 
+                                                         code_size,                        
+                                                         fullycon_code = fullycon_code,
+                                                         all_outs = True)
+    
+    # -- Now we construct the encoder
+    with tf.variable_scope("Decoder"):
+        (sigmoid_out, h_recon_raw, h_up, h_relu_up, h_decode) = Assemble_Decoder(h_code, 
+                                                                                 phase, 
+                                                                                 input_size, 
+                                                                                 input_channels, 
+                                                                                 size_filt_fine, 
+                                                                                 size_filt_out, 
+                                                                                 network_depth, 
+                                                                                 net_channels_down,
+                                                                                 net_channels_up, 
+                                                                                 net_layers_up, 
+                                                                                 net_layers_output,
+                                                                                 code_size,
+                                                                                 net_layers_decode,
+                                                                                 net_neurons_decode,
+                                                                                 net_neurons_encode,
+                                                                                 fullycon_code = fullycon_code,
+                                                                                 all_outs = True)
+
         
     # And we return the network topology
     if all_outs:
-        return sigmoid_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up, h_relu_out, h_recon_raw, h_decode, h_code
+        return sigmoid_out, h_recon_raw, h_up, h_relu_up, h_decode, h_down, h_relu_down, h_code
     else:
         return sigmoid_out, h_recon_raw
