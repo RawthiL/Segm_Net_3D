@@ -262,6 +262,92 @@ def Assemble_Segmentation_Network(ph_entry,
     return soft_out, v_out
 
 
+def Assemble_Mixed_Segment_Texture_Network(ph_entry, 
+                                           phase, 
+                                           input_size, 
+                                           input_channels, 
+                                           num_clases, 
+                                           size_filt_fine, 
+                                           size_filt_out,
+                                           network_depth, 
+                                           net_channels_down, 
+                                           net_layers_down, 
+                                           net_channels_base, 
+                                           net_layers_base, 
+                                           net_channels_up, 
+                                           net_layers_up, 
+                                           net_layers_segm,
+                                           net_texture_neurons,
+                                           net_layers_texture):
+
+
+
+    with tf.variable_scope('Base_network'):
+
+        (h_relu_out,
+         h_down, 
+         h_relu_down, 
+         h_base,
+         h_relu_base, 
+         h_up, 
+         h_relu_up)  = Assemble_Network(ph_entry, 
+                                        phase, 
+                                        input_size, 
+                                        input_channels, 
+                                        num_clases, 
+                                        size_filt_fine, 
+                                        size_filt_out,
+                                        network_depth, 
+                                        net_channels_down, 
+                                        net_layers_down, 
+                                        net_channels_base, 
+                                        net_layers_base, 
+                                        net_channels_up, 
+                                        net_layers_up, 
+                                        net_layers_segm, 
+                                        all_outs = True)
+    
+    with tf.variable_scope('Segmentation_softmax_node'):
+        soft_out = tf.nn.softmax(h_relu_out,-1)
+    
+    # Add aditional layers for texturing 
+    with tf.variable_scope("Terxturing_layers"):
+        acivation_fcn = tf.nn.sigmoid
+        h_nn = OrderedDict()
+        h_nn[0] = tf.contrib.layers.fully_connected(h_relu_up[0],
+                                          net_texture_neurons,
+                                          activation_fn=acivation_fcn,
+                                          weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                          biases_initializer=tf.zeros_initializer(),
+                                          reuse=tf.AUTO_REUSE,
+                                          scope='Input_layer',
+                                          trainable=True)
+        for idx_layer in range(1,net_layers_texture):
+
+            h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
+                                                  net_texture_neurons,
+                                                  activation_fn=acivation_fcn,
+                                                  weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                                  biases_initializer=tf.zeros_initializer(),
+                                                  reuse=tf.AUTO_REUSE,
+                                                  scope='Hidden_layers',
+                                                  trainable=True)
+            
+        h_nn[net_layers_texture] = tf.contrib.layers.fully_connected(h_nn[net_layers_texture-1],
+                                          1,
+                                          activation_fn=acivation_fcn,
+                                          weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                          biases_initializer=tf.zeros_initializer(),
+                                          reuse=tf.AUTO_REUSE,
+                                          scope='Output_layer',
+                                          trainable=True)
+        
+        texture_tensor = h_nn[net_layers_texture]
+        
+        
+    
+    return soft_out, h_relu_out, texture_tensor
+
 def Assemble_Network(ph_entry, 
                      phase, 
                      input_size, 
