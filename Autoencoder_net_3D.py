@@ -40,7 +40,8 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                                    name=layer_name+'FC_0',
                                    reuse=None)
 
-            h[0] = tf.layers.batch_normalization(h_aux, training=phase)
+            h[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+            #h[0] = tf.layers.batch_normalization(h_aux, training=phase)
 
 
             # If there are mores layers in this level, lets create them
@@ -61,7 +62,8 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                                    trainable=True,
                                    name=layer_name+'FC_%d'%i,
                                    reuse=None)
-                    h[i] = tf.layers.batch_normalization(h_aux, training=phase)
+                    h[i] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+                    #h[i] = tf.layers.batch_normalization(h_aux, training=phase)
             
             # Last code level
             h_aux = tf.layers.dense(h[N_fc-2],
@@ -78,7 +80,8 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                                     trainable=True,
                                     name=layer_name+'FC_CODE',
                                     reuse=None)
-            h_relu = tf.layers.batch_normalization(h_aux, training=phase)
+            h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+            #h_relu = tf.layers.batch_normalization(h_aux, training=phase)
             
         
         # Single layer
@@ -98,7 +101,8 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                                    name=layer_name+'FC_0_CODE',
                                    reuse=None)
 
-            h_relu = tf.layers.batch_normalization(h_aux, training=phase)
+            #h_relu = tf.layers.batch_normalization(h_aux, training=phase)
+            h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
 
         # Finaly we return the code
         return (h_relu)
@@ -126,7 +130,8 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                                    name=layer_name+'FC_0',
                                    reuse=None)
 
-            h[0] = tf.layers.batch_normalization(h_aux, training=phase)
+            #h[0] = tf.layers.batch_normalization(h_aux, training=phase)
+            h[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
 
             # If there are mores layers in this level, lets create them
             if N_fc > 2:
@@ -146,7 +151,8 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                                    trainable=True,
                                    name=layer_name+'FC_%d'%i,
                                    reuse=None)
-                    h[i] = tf.layers.batch_normalization(h_aux, training=phase)
+                    #h[i] = tf.layers.batch_normalization(h_aux, training=phase)
+                    h[i] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
 
 
             # Finally the expansion layer
@@ -165,7 +171,8 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                                    trainable=True,
                                    name=layer_name+'FC_EXPAND',
                                    reuse=None)
-            h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+            #h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+            h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
 
             # Reshape into low-resolution multichannel volume
             h_decode = tf.reshape(h_relu, out_shape)
@@ -187,7 +194,8 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                                    trainable=True,
                                    name=layer_name+'FC_0_EXPAND',
                                    reuse=None)
-            h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+            #h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
+            h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
 
             # Reshape into low-resolution multichannel volume
             h_decode = tf.reshape(h_relu, out_shape)

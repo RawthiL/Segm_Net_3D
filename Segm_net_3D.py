@@ -15,15 +15,15 @@ import Geometrias_3D as geo3D
 #-----------------------------------------------------------------------------#
 
 def weight_variable(shape, nombre):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.truncated_normal(shape, stddev=0.1, dtype=tf.float16)
     #return tf.Variable(initial)
-    return tf.get_variable(nombre, dtype=tf.float32, initializer=initial)
+    return tf.get_variable(nombre, dtype=tf.float16, initializer=initial)
 
 
 def bias_variable(shape, nombre):
-    initial = tf.constant(0.1, shape=shape)
+    initial = tf.constant(0.1, shape=shape, dtype=tf.float16)
     #return tf.Variable(initial)
-    return tf.get_variable(nombre, dtype=tf.float32, initializer=initial)
+    return tf.get_variable(nombre, dtype=tf.float16, initializer=initial)
 
 
 #-----------------------------------------------------------------------------#
@@ -66,7 +66,8 @@ def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, la
     # 3D Convolution operation
     h_conv= conv3d_fine(input_tensor, W)
     # Batch normalization
-    h_BN = tf.layers.batch_normalization(tf.nn.bias_add(h_conv, b), training=phase);
+    #h_BN = tf.layers.batch_normalization(tf.nn.bias_add(h_conv, b), training=phase);
+    h_BN = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(tf.nn.bias_add(h_conv, b),dtype=tf.float32), training=phase),dtype=tf.float16);
     # Alineality
     if non_linear_function == None:
         h_alin = h_BN
