@@ -29,6 +29,58 @@ def bias_variable(shape, nombre):
 
 
 #-----------------------------------------------------------------------------#
+#--------------- Variable loading --------------------------------------------#
+#-----------------------------------------------------------------------------#
+
+# from tensorflow.python.tools import inspect_checkpoint as inch
+# inch.print_tensors_in_checkpoint_file(CHECKPOINT_PATH_AE_CLASS_0, '', all_tensors=True)
+
+def create_restore_dict(graph_keys, old_scope, new_scope):
+    
+    # Create dictionary
+    restore_dictinary = dict()
+    
+    
+    if old_scope == new_scope:
+        # If the model is the same, just create a trivial dictionary
+        for a in tf.get_collection(graph_keys, scope=new_scope):
+            restore_dictinary[a.name[:-2]] = a
+    else:
+        # Iterat throug all tensors in the scope
+        for a in tf.get_collection(graph_keys, scope=new_scope):
+            # Split the tensor name by the first '/' to get the raw tensor name
+            partition_nom = a.name[:-2].partition('/')
+            # Construct the old tensor name using the old scope name
+            old_name = old_scope+'/'+partition_nom[-1]
+            # Assing the net tensor to the dictionary entry of the old name
+            restore_dictinary[old_name] = a
+        
+
+    return restore_dictinary
+
+def assign_and_convert_halfPrecision(restore_dictinary, CHECKPOINT_PATH):
+    
+    # Iterate over the dictionary containing the variables to load
+    for variable_name_old, varible_new in restore_dictinary.items():
+        
+        # Load the variable from the checkpoint
+        var = tf.contrib.framework.load_variable(CHECKPOINT_PATH, variable_name_old)
+        
+        # Assign to new graph
+        if(var.dtype == np.float32) and (varible_new.dtype == np.float16):
+            # If the variable is float16 in the new graph, we cast it
+            tf.add_to_collection('assignOps', varible_new.assign(tf.cast(var, tf.float16)))
+        else:
+            # If the variable in the old graph is float16 or the new variable is float32, 
+            # we load it directly
+            tf.add_to_collection('assignOps', varible_new.assign(var))
+        
+   
+    # Return the operation
+    return tf.get_collection('assignOps')
+
+
+#-----------------------------------------------------------------------------#
 #--------------- Convolution and pooling Layers ------------------------------#
 #-----------------------------------------------------------------------------#
 
@@ -494,10 +546,10 @@ def dice_loss(output_map, ojective_map):
         mult_sum = tf.reduce_sum(inter_multi,[1,2,3,4])
 
         # Inter-class
-        sum_class_1 = tf.reduce_sum(tf.cast(tf.pow(output_map,2), tf.float32),[1,2,3,4])
-        sum_class_2 = tf.reduce_sum(tf.cast(tf.pow(ojective_map,2), tf.float32),[1,2,3,4])
+        sum_class_1 = tf.reduce_sum(tf.cast(tf.pow(output_map,2), TF_DTYPE_USE),[1,2,3,4])
+        sum_class_2 = tf.reduce_sum(tf.cast(tf.pow(ojective_map,2), TF_DTYPE_USE),[1,2,3,4])
         
         # Dice-loss
-        return tf.div(tf.multiply(tf.cast(2, tf.float32),mult_sum) , tf.add(sum_class_1,sum_class_2))
+        return tf.div(tf.multiply(tf.cast(2, TF_DTYPE_USE),mult_sum) , tf.add(sum_class_1,sum_class_2))
 
     
