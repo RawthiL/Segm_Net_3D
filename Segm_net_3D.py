@@ -387,7 +387,7 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
                                                   weights_initializer=tf.contrib.layers.xavier_initializer(),
                                                   biases_initializer=tf.zeros_initializer(),
                                                   reuse=tf.AUTO_REUSE,
-                                                  scope='Hidden_layers',
+                                                  scope='Hidden_layer_%d'%idx_layer,
                                                   trainable=True)
             
         h_nn[net_layers_texture] = tf.contrib.layers.fully_connected(h_nn[net_layers_texture-1],
@@ -513,7 +513,106 @@ def Assemble_Network(ph_entry,
         return h_relu_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
     else:
         return h_relu_out
+    
+    
 
+def Assemble_Classification_Network(ph_entry, 
+                                    phase, 
+                                    input_size, 
+                                    input_channels, 
+                                    num_clases, 
+                                    size_filt_fine, 
+                                    network_depth, 
+                                    net_channels_down, 
+                                    net_layers_down, 
+                                    net_neurons_base, 
+                                    net_layers_base,
+                                    net_base_activation_fcn = tf.nn.sigmoid, 
+                                    all_outs = False):
+    
+    
+    # The input tensor must be reshaped as a 5d tensor, with last dimension the 
+    # color channels
+    x_vol = tf.reshape(ph_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
+    
+    # Feature extraction levels
+    
+    # First level:
+    level_channels = net_channels_down[0]
+    level_layers = net_layers_down[0]
+    h_down = OrderedDict()
+    h_relu_down = OrderedDict()
+    (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
+                                                   size_filt_fine, 
+                                                   x_vol, 
+                                                   input_channels, 
+                                                   level_channels, 
+                                                   phase, 
+                                                   "Level_0_down") 
+    # Rest of the levels
+    for down_path_index in range(1,network_depth):
+        previous_level_channels = net_channels_down[down_path_index-1]
+        level_channels = net_channels_down[down_path_index]
+        level_layers = net_layers_down[down_path_index]
+        (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
+                                                                                   size_filt_fine, 
+                                                                                   h_down[down_path_index-1], 
+                                                                                   previous_level_channels, 
+                                                                                   level_channels, 
+                                                                                   phase, 
+                                                                                   "Level_%d_down"%down_path_index)
+               
+    # The base level is a fully connected layer for clasification
+    
+    h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
+    
+    # -- Initial layer
+    h_nn = OrderedDict()
+    h_nn[0] = tf.contrib.layers.fully_connected(h_flat,
+                                                net_neurons_base,
+                                                activation_fn=net_base_activation_fcn,
+                                                weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                                biases_initializer=tf.zeros_initializer(),
+                                                reuse=tf.AUTO_REUSE,
+                                                scope='Input_layer',
+                                                trainable=True)
+    # -- Rest of the layers
+    for idx_layer in range(1,net_layers_base):
+
+        h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
+                                                            net_neurons_base,
+                                                            activation_fn=net_base_activation_fcn,
+                                                            weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                                            biases_initializer=tf.zeros_initializer(),
+                                                            reuse=tf.AUTO_REUSE,
+                                                            scope='Hidden_layer_%d'%idx_layer,
+                                                            trainable=True)
+
+    # -- Final classification
+    h_nn[net_layers_base] = tf.contrib.layers.fully_connected(h_nn[net_layers_base-1],
+                                                              num_clases,
+                                                              activation_fn=net_base_activation_fcn,
+                                                              weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                                              biases_initializer=tf.zeros_initializer(),
+                                                              reuse=tf.AUTO_REUSE,
+                                                              scope='Output_layer',
+                                                              trainable=True)
+
+    # Softmaxed output
+    if num_clases > 1:
+        softmax_out = tf.nn.softmax(h_nn[net_layers_base],-1)
+    else:
+        softmax_out = h_nn[net_layers_base]
+    
+    
+    # And we return the network topology
+    if all_outs:
+        return softmax_out, h_nn, h_flat, h_down, h_relu_down
+    else:
+        return softmax_out, h_nn[net_layers_base]
+    
+    
+    
     
 #-----------------------------------------------------------------------------#
 #--------------- TensorBoard summaries ---------------------------------------#
