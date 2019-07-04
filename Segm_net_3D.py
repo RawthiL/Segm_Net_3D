@@ -124,6 +124,7 @@ def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, la
         h_BN = tf.layers.batch_normalization(tf.nn.bias_add(h_conv, b), training=phase);
     else:
         h_BN = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(tf.nn.bias_add(h_conv, b),dtype=tf.float32), training=phase),dtype=tf.float16);
+        #h_BN = tf.layers.batch_normalization(tf.nn.bias_add(h_conv, b), training=phase, fused=False);
     # Alineality
     if non_linear_function == None:
         h_alin = h_BN
@@ -373,33 +374,62 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
         h_nn = OrderedDict()
         h_nn[0] = tf.contrib.layers.fully_connected(h_relu_up[0],
                                           net_texture_neurons,
-                                          activation_fn=acivation_fcn,
+                                          activation_fn=None,
                                           weights_initializer=tf.contrib.layers.xavier_initializer(),
                                           biases_initializer=tf.zeros_initializer(),
                                           reuse=tf.AUTO_REUSE,
                                           scope='Input_layer',
                                           trainable=True)
+        
+        # Batch normalization
+        if TF_DTYPE_USE == tf.float32:
+            h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+        else:
+            h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
+#             h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+        # Activation
+        h_nn[0] = acivation_fcn(h_nn[0])
+        
+        # ---- Hidden Layers
         for idx_layer in range(1,net_layers_texture):
 
             h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
                                                   net_texture_neurons,
-                                                  activation_fn=acivation_fcn,
+                                                  activation_fn=None,
                                                   weights_initializer=tf.contrib.layers.xavier_initializer(),
                                                   biases_initializer=tf.zeros_initializer(),
                                                   reuse=tf.AUTO_REUSE,
                                                   scope='Hidden_layer_%d'%idx_layer,
                                                   trainable=True)
-            
+            # Batch normalization
+            if TF_DTYPE_USE == tf.float32:
+                h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
+            else:
+                h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
+#                 h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
+            # Activation
+            h_nn[idx_layer] = acivation_fcn(h_nn[idx_layer])
+         
+        
+        # ----- Output layer
         h_nn[net_layers_texture] = tf.contrib.layers.fully_connected(h_nn[net_layers_texture-1],
                                           1,
-                                          activation_fn=acivation_fcn,
+                                          activation_fn=None,
                                           weights_initializer=tf.contrib.layers.xavier_initializer(),
                                           biases_initializer=tf.zeros_initializer(),
                                           reuse=tf.AUTO_REUSE,
                                           scope='Output_layer',
                                           trainable=True)
         
-        texture_tensor = h_nn[net_layers_texture]
+        # Batch normalization
+        if TF_DTYPE_USE == tf.float32:
+            h_nn[net_layers_texture] = tf.layers.batch_normalization(h_nn[net_layers_texture], training=phase);
+        else:
+            h_nn[net_layers_texture] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_texture],dtype=tf.float32), training=phase),dtype=tf.float16);
+#             h_nn[net_layers_texture] = tf.layers.batch_normalization(h_nn[net_layers_texture], training=phase, fused=False);
+        # Activation
+        texture_tensor = acivation_fcn(h_nn[net_layers_texture])
+        
         
         
     
@@ -527,9 +557,8 @@ def Assemble_Classification_Network(ph_entry,
                                     net_layers_down, 
                                     net_neurons_base, 
                                     net_layers_base,
-                                    net_base_activation_fcn = tf.nn.sigmoid, 
+                                    net_base_activation_fcn = tf.nn.sigmoid,
                                     all_outs = False):
-    
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
     # color channels
@@ -570,33 +599,64 @@ def Assemble_Classification_Network(ph_entry,
     h_nn = OrderedDict()
     h_nn[0] = tf.contrib.layers.fully_connected(h_flat,
                                                 net_neurons_base,
-                                                activation_fn=net_base_activation_fcn,
+                                                activation_fn=None,
                                                 weights_initializer=tf.contrib.layers.xavier_initializer(),
                                                 biases_initializer=tf.zeros_initializer(),
                                                 reuse=tf.AUTO_REUSE,
                                                 scope='Input_layer',
                                                 trainable=True)
+    # Batch normalization
+    if TF_DTYPE_USE == tf.float32:
+        h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+    else:
+        h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
+#         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+    # Activation
+    h_nn[0] = net_base_activation_fcn(h_nn[0])
+
     # -- Rest of the layers
     for idx_layer in range(1,net_layers_base):
 
         h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
                                                             net_neurons_base,
-                                                            activation_fn=net_base_activation_fcn,
+                                                            activation_fn=None,
                                                             weights_initializer=tf.contrib.layers.xavier_initializer(),
                                                             biases_initializer=tf.zeros_initializer(),
                                                             reuse=tf.AUTO_REUSE,
                                                             scope='Hidden_layer_%d'%idx_layer,
                                                             trainable=True)
+        # Batch normalization
+        if TF_DTYPE_USE == tf.float32:
+            h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
+        else:
+            h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
+#             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
+        # Activation
+        h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
 
     # -- Final classification
+    if num_clases == 1:
+        # If there is only one class, the output must be sigmoid
+        net_base_activation_fcn = tf.nn.sigmoid
+        
     h_nn[net_layers_base] = tf.contrib.layers.fully_connected(h_nn[net_layers_base-1],
                                                               num_clases,
-                                                              activation_fn=net_base_activation_fcn,
+                                                              activation_fn=None,
                                                               weights_initializer=tf.contrib.layers.xavier_initializer(),
                                                               biases_initializer=tf.zeros_initializer(),
                                                               reuse=tf.AUTO_REUSE,
                                                               scope='Output_layer',
                                                               trainable=True)
+    # Batch normalization
+    if TF_DTYPE_USE == tf.float32:
+        h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
+    else:
+        h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
+#         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
+    # Activation
+    h_nn[net_layers_base] = net_base_activation_fcn(h_nn[net_layers_base])
+    
+    
 
     # Softmaxed output
     if num_clases > 1:

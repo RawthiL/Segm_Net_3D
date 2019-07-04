@@ -45,6 +45,7 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                 h[0] = tf.layers.batch_normalization(h_aux, training=phase)
             else:
                 h[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h[0] = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
             
 
 
@@ -70,6 +71,7 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                         h[i] = tf.layers.batch_normalization(h_aux, training=phase)
                     else:
                         h[i] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                         h[i] = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
             
             # Last code level
@@ -91,6 +93,7 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                 h_relu = tf.layers.batch_normalization(h_aux, training=phase)
             else:
                 h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h_relu = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
             
         
         # Single layer
@@ -114,6 +117,7 @@ def Encode_level(N_fc, input_tensor, internal_size, code_size, phase, layer_name
                 h_relu = tf.layers.batch_normalization(h_aux, training=phase)
             else:
                 h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h_relu = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
         # Finaly we return the code
         return (h_relu)
@@ -144,6 +148,7 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                 h[0] = tf.layers.batch_normalization(h_aux, training=phase)
             else:
                 h[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h[0] = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
             # If there are mores layers in this level, lets create them
             if N_fc > 2:
@@ -167,6 +172,7 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                         h[i] = tf.layers.batch_normalization(h_aux, training=phase)
                     else:
                         h[i] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                         h[i] = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
 
             # Finally the expansion layer
@@ -189,6 +195,7 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                 h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
             else:
                 h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h_relu = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
             # Reshape into low-resolution multichannel volume
             h_decode = tf.reshape(h_relu, out_shape)
@@ -214,6 +221,7 @@ def Decode_level(N_fc, code_tensor, internal_size, out_shape, phase, layer_name,
                 h_relu = tf.layers.batch_normalization(h_aux, training=phase)        
             else: 
                 h_relu = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_aux,dtype=tf.float32), training=phase),dtype=tf.float16)
+#                 h_relu = tf.layers.batch_normalization(h_aux, training=phase, fused=False);
 
             # Reshape into low-resolution multichannel volume
             h_decode = tf.reshape(h_relu, out_shape)
