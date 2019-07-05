@@ -336,11 +336,12 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
                                            net_layers_up, 
                                            net_layers_segm,
                                            net_texture_neurons,
-                                           net_layers_texture):
+                                           net_layers_texture,
+                                           acivation_fcn = tf.nn.sigmoid):
 
 
 
-    with tf.variable_scope('Base_network'):
+    with tf.name_scope('Base_network'):
 
         (h_relu_out,
          h_down, 
@@ -365,21 +366,27 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
                                         net_layers_segm, 
                                         all_outs = True)
     
-    with tf.variable_scope('Segmentation_softmax_node'):
+    with tf.name_scope('Segmentation_softmax_node'):
         soft_out = tf.nn.softmax(h_relu_out,-1)
     
     # Add aditional layers for texturing 
-    with tf.variable_scope("Terxturing_layers"):
-        acivation_fcn = tf.nn.sigmoid
+    with tf.name_scope("Terxturing_layers"):
         h_nn = OrderedDict()
-        h_nn[0] = tf.contrib.layers.fully_connected(h_relu_up[0],
-                                          net_texture_neurons,
-                                          activation_fn=None,
-                                          weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                          biases_initializer=tf.zeros_initializer(),
-                                          reuse=tf.AUTO_REUSE,
-                                          scope='Input_layer',
-                                          trainable=True)
+
+        h_nn[0] = tf.layers.dense(h_relu_up[0],
+                                   net_texture_neurons,
+                                   activation=None,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name='Input_layer',
+                                   reuse=None)
         
         # Batch normalization
         if TF_DTYPE_USE == tf.float32:
@@ -393,14 +400,22 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
         # ---- Hidden Layers
         for idx_layer in range(1,net_layers_texture):
 
-            h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
-                                                  net_texture_neurons,
-                                                  activation_fn=None,
-                                                  weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                                  biases_initializer=tf.zeros_initializer(),
-                                                  reuse=tf.AUTO_REUSE,
-                                                  scope='Hidden_layer_%d'%idx_layer,
-                                                  trainable=True)
+
+
+            h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
+                                   net_texture_neurons,
+                                   activation=None,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name='Hidden_layer_%d'%idx_layer,
+                                   reuse=None)
             # Batch normalization
             if TF_DTYPE_USE == tf.float32:
                 h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
@@ -412,14 +427,20 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
          
         
         # ----- Output layer
-        h_nn[net_layers_texture] = tf.contrib.layers.fully_connected(h_nn[net_layers_texture-1],
-                                          1,
-                                          activation_fn=None,
-                                          weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                          biases_initializer=tf.zeros_initializer(),
-                                          reuse=tf.AUTO_REUSE,
-                                          scope='Output_layer',
-                                          trainable=True)
+        h_nn[net_layers_texture] = tf.layers.dense(h_nn[net_layers_texture-1],
+                                   1,
+                                   activation=None,
+                                   use_bias=True,
+                                   kernel_initializer=None,
+                                   bias_initializer=tf.zeros_initializer(),
+                                   kernel_regularizer=None,
+                                   bias_regularizer=None,
+                                   activity_regularizer=None,
+                                   #kernel_constraint=None,
+                                   #bias_constraint=None,
+                                   trainable=True,
+                                   name='Output_layer',
+                                   reuse=None)
         
         # Batch normalization
         if TF_DTYPE_USE == tf.float32:
@@ -429,7 +450,7 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
 #             h_nn[net_layers_texture] = tf.layers.batch_normalization(h_nn[net_layers_texture], training=phase, fused=False);
         # Activation
         texture_tensor = acivation_fcn(h_nn[net_layers_texture])
-        
+       
         
         
     
@@ -597,14 +618,21 @@ def Assemble_Classification_Network(ph_entry,
     
     # -- Initial layer
     h_nn = OrderedDict()
-    h_nn[0] = tf.contrib.layers.fully_connected(h_flat,
-                                                net_neurons_base,
-                                                activation_fn=None,
-                                                weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                                biases_initializer=tf.zeros_initializer(),
-                                                reuse=tf.AUTO_REUSE,
-                                                scope='Input_layer',
-                                                trainable=True)
+    h_nn[0] = tf.layers.dense(h_flat,
+                              net_neurons_base,
+                              activation=None,
+                              use_bias=True,
+                              kernel_initializer=None,
+                              bias_initializer=tf.zeros_initializer(),
+                              kernel_regularizer=None,
+                              bias_regularizer=None,
+                              activity_regularizer=None,
+                              #kernel_constraint=None,
+                              #bias_constraint=None,
+                              trainable=True,
+                              name='Input_layer',
+                              reuse=None)
+    
     # Batch normalization
     if TF_DTYPE_USE == tf.float32:
         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
@@ -617,14 +645,22 @@ def Assemble_Classification_Network(ph_entry,
     # -- Rest of the layers
     for idx_layer in range(1,net_layers_base):
 
-        h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
-                                                            net_neurons_base,
-                                                            activation_fn=None,
-                                                            weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                                            biases_initializer=tf.zeros_initializer(),
-                                                            reuse=tf.AUTO_REUSE,
-                                                            scope='Hidden_layer_%d'%idx_layer,
-                                                            trainable=True)
+        h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
+                                          net_neurons_base,
+                                          activation=None,
+                                          use_bias=True,
+                                          kernel_initializer=None,
+                                          bias_initializer=tf.zeros_initializer(),
+                                          kernel_regularizer=None,
+                                          bias_regularizer=None,
+                                          activity_regularizer=None,
+                                          #kernel_constraint=None,
+                                          #bias_constraint=None,
+                                          trainable=True,
+                                          name='Hidden_layer_%d'%idx_layer,
+                                          reuse=None)
+
+
         # Batch normalization
         if TF_DTYPE_USE == tf.float32:
             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
@@ -638,15 +674,23 @@ def Assemble_Classification_Network(ph_entry,
     if num_clases == 1:
         # If there is only one class, the output must be sigmoid
         net_base_activation_fcn = tf.nn.sigmoid
+
+    h_nn[net_layers_base] = tf.layers.dense(h_nn[idx_layer-1],
+                                            num_clases,
+                                            activation=None,
+                                            use_bias=True,
+                                            kernel_initializer=None,
+                                            bias_initializer=tf.zeros_initializer(),
+                                            kernel_regularizer=None,
+                                            bias_regularizer=None,
+                                            activity_regularizer=None,
+                                            #kernel_constraint=None,
+                                            #bias_constraint=None,
+                                            trainable=True,
+                                            name='Output_layer',
+                                            reuse=None)
+
         
-    h_nn[net_layers_base] = tf.contrib.layers.fully_connected(h_nn[net_layers_base-1],
-                                                              num_clases,
-                                                              activation_fn=None,
-                                                              weights_initializer=tf.contrib.layers.xavier_initializer(),
-                                                              biases_initializer=tf.zeros_initializer(),
-                                                              reuse=tf.AUTO_REUSE,
-                                                              scope='Output_layer',
-                                                              trainable=True)
     # Batch normalization
     if TF_DTYPE_USE == tf.float32:
         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
