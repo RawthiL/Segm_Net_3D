@@ -148,7 +148,7 @@ def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size,
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
                 
         h_relu = h[N_conv-1]
             
@@ -174,7 +174,7 @@ def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
                 
         h_relu = h[N_conv-1]
 
@@ -203,7 +203,7 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
             
         h_relu = h[N_conv-1]
         
@@ -233,7 +233,7 @@ def Output_layer(N_conv, filt_size, input_tensor, input_size, out_chanels, phase
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], out_chanels, out_chanels, filt_size, phase, layer_name+"_%d"%N_conv, non_linear_function = non_lin_func)
+                h[i] = nn_3D_conv_layer(h[i-1], out_chanels, out_chanels, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
         # Finally we return the output maps
         return (h[N_conv-1])
     
