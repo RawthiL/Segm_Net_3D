@@ -11,6 +11,7 @@ import Geometrias_3D as geo3D
 
 
 TF_DTYPE_USE = tf.float32
+DO_NOT_CREATE_SUMMARIES = False
 
 #-----------------------------------------------------------------------------#
 #--------------- Variable generation -----------------------------------------#
@@ -190,7 +191,7 @@ def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase
         return (h_out, h_relu)
     
     
-def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, detail_tensor, phase, layer_name, non_lin_func = tf.nn.relu):
+def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, detail_tensor, phase, layer_name, non_lin_func = tf.nn.relu, last_level=False):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
@@ -206,13 +207,16 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
             
         h_relu = h[N_conv-1]
         
-        # After creating all internal layers, we perform the up-convolution
-        # Weight creation
-        with tf.name_scope(layer_name+'weights_up'):
-            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
-            variable_summaries(W)
-        # Up-convolution
-        h_out = conv3d_up(h_relu, W)
+        # After creating all internal layers, we perform the up-convolution if this is not the last level
+        if not last_level:
+            # Weight creation
+            with tf.name_scope(layer_name+'weights_up'):
+                W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
+                variable_summaries(W)
+            # Up-convolution
+            h_out = conv3d_up(h_relu, W)
+        else:
+            h_out = h_relu
 
         # Finaly we return the up-convolutioned (upsampled) tensor and
         # the last output tensor of "internal_size"
@@ -532,7 +536,10 @@ def Assemble_Network(ph_entry,
                                                                           phase, 
                                                                           "Level_%d_up"%(network_depth-1))
     # Rest of the levels
+    last_level_flag=False
     for up_path_index in range(network_depth-2,-1,-1):
+        if up_path_index== 0:
+            last_level_flag=True
         previous_level_channels = net_channels_up[up_path_index+1]
         level_channels = net_channels_up[up_path_index]
         level_layers = net_layers_up[up_path_index]
@@ -543,7 +550,8 @@ def Assemble_Network(ph_entry,
                                                                           level_channels, 
                                                                           h_relu_down[up_path_index], 
                                                                           phase, 
-                                                                          "Level_%d_up"%up_path_index)
+                                                                          "Level_%d_up"%up_path_index,
+                                                                         last_level = last_level_flag)
 
     
     # -- Finally we construct the output layer
@@ -723,16 +731,17 @@ def Assemble_Classification_Network(ph_entry,
 #-----------------------------------------------------------------------------#
 
 def variable_summaries(var):
-    # """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-    with tf.name_scope('summaries'):
-        mean = tf.reduce_mean(var)
-        tf.summary.scalar('mean', mean)
-        with tf.name_scope('stddev'):
-            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.summary.scalar('stddev', stddev)
-        tf.summary.scalar('max', tf.reduce_max(var))
-        tf.summary.scalar('min', tf.reduce_min(var))
-        tf.summary.histogram('histogram', var)
+    if not DO_NOT_CREATE_SUMMARIES:
+        # """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+        with tf.name_scope('summaries'):
+            mean = tf.reduce_mean(var)
+            tf.summary.scalar('mean', mean)
+            with tf.name_scope('stddev'):
+                stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+            tf.summary.scalar('stddev', stddev)
+            tf.summary.scalar('max', tf.reduce_max(var))
+            tf.summary.scalar('min', tf.reduce_min(var))
+            tf.summary.histogram('histogram', var)
 
         
 
