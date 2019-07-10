@@ -685,9 +685,6 @@ def Assemble_Classification_Network(ph_entry,
 
         # -- Final classification
         with tf.name_scope('Output_layer'):
-            if num_clases == 1:
-                # If there is only one class, the output must be sigmoid
-                net_base_activation_fcn = tf.nn.sigmoid
 
             h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
                                                     num_clases,
@@ -711,23 +708,29 @@ def Assemble_Classification_Network(ph_entry,
             else:
                 h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
         #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
+            
+            
             # Activation
-            h_nn[net_layers_base] = net_base_activation_fcn(h_nn[net_layers_base])
+            if num_clases == 1:
+                # If there is only one class, the output must be sigmoid
+                net_out = tf.nn.sigmoid(h_nn[net_layers_base])
+            else:
+                net_out = net_base_activation_fcn(h_nn[net_layers_base])
 
-
+    
 
     # Softmaxed output
     if num_clases > 1:
-        softmax_out = tf.nn.softmax(h_nn[net_layers_base],-1)
+        softmax_out = tf.nn.softmax(net_out,-1)
     else:
-        softmax_out = h_nn[net_layers_base]
+        softmax_out = net_out
     
     
     # And we return the network topology
     if all_outs:
-        return softmax_out, h_nn, h_flat, h_down, h_relu_down
+        return softmax_out, net_out, h_nn, h_flat, h_down, h_relu_down
     else:
-        return softmax_out, h_nn[net_layers_base]
+        return softmax_out, net_out
     
     
     
