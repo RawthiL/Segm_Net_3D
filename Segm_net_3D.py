@@ -594,121 +594,127 @@ def Assemble_Classification_Network(ph_entry,
     x_vol = tf.reshape(ph_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
     
     # Feature extraction levels
-    
-    # First level:
-    level_channels = net_channels_down[0]
-    level_layers = net_layers_down[0]
-    h_down = OrderedDict()
-    h_relu_down = OrderedDict()
-    (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
-                                                   size_filt_fine, 
-                                                   x_vol, 
-                                                   input_channels, 
-                                                   level_channels, 
-                                                   phase, 
-                                                   "Level_0_down") 
-    # Rest of the levels
-    for down_path_index in range(1,network_depth):
-        previous_level_channels = net_channels_down[down_path_index-1]
-        level_channels = net_channels_down[down_path_index]
-        level_layers = net_layers_down[down_path_index]
-        (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
-                                                                                   size_filt_fine, 
-                                                                                   h_down[down_path_index-1], 
-                                                                                   previous_level_channels, 
-                                                                                   level_channels, 
-                                                                                   phase, 
-                                                                                   "Level_%d_down"%down_path_index)
-               
-    # The base level is a fully connected layer for clasification
-    
-    h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
-    
-    # -- Initial layer
-    h_nn = OrderedDict()
-    h_nn[0] = tf.layers.dense(h_flat,
-                              net_neurons_base,
-                              activation=None,
-                              use_bias=True,
-                              kernel_initializer=None,
-                              bias_initializer=tf.zeros_initializer(),
-                              kernel_regularizer=None,
-                              bias_regularizer=None,
-                              activity_regularizer=None,
-                              #kernel_constraint=None,
-                              #bias_constraint=None,
-                              trainable=True,
-                              name='Input_layer',
-                              reuse=None)
-    
-    # Batch normalization
-    if TF_DTYPE_USE == tf.float32:
-        h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
-    else:
-        h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
-#         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
-    # Activation
-    h_nn[0] = net_base_activation_fcn(h_nn[0])
+    with tf.name_scope('Convolutional_layers'):
 
-    # -- Rest of the layers
-    for idx_layer in range(1,net_layers_base):
+        # First level:
+        level_channels = net_channels_down[0]
+        level_layers = net_layers_down[0]
+        h_down = OrderedDict()
+        h_relu_down = OrderedDict()
+        (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
+                                                       size_filt_fine, 
+                                                       x_vol, 
+                                                       input_channels, 
+                                                       level_channels, 
+                                                       phase, 
+                                                       "Level_0_down") 
+        # Rest of the levels
+        for down_path_index in range(1,network_depth):
+            previous_level_channels = net_channels_down[down_path_index-1]
+            level_channels = net_channels_down[down_path_index]
+            level_layers = net_layers_down[down_path_index]
+            (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
+                                                                                       size_filt_fine, 
+                                                                                       h_down[down_path_index-1], 
+                                                                                       previous_level_channels, 
+                                                                                       level_channels, 
+                                                                                       phase, 
+                                                                                       "Level_%d_down"%down_path_index)
 
-        h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
-                                          net_neurons_base,
-                                          activation=None,
-                                          use_bias=True,
-                                          kernel_initializer=None,
-                                          bias_initializer=tf.zeros_initializer(),
-                                          kernel_regularizer=None,
-                                          bias_regularizer=None,
-                                          activity_regularizer=None,
-                                          #kernel_constraint=None,
-                                          #bias_constraint=None,
-                                          trainable=True,
-                                          name='Hidden_layer_%d'%idx_layer,
-                                          reuse=None)
+        # The base level is a fully connected layer for clasification
 
-
-        # Batch normalization
-        if TF_DTYPE_USE == tf.float32:
-            h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
-        else:
-            h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
-#             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
-        # Activation
-        h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
-
-    # -- Final classification
-    if num_clases == 1:
-        # If there is only one class, the output must be sigmoid
-        net_base_activation_fcn = tf.nn.sigmoid
-
-    h_nn[net_layers_base] = tf.layers.dense(h_nn[idx_layer-1],
-                                            num_clases,
-                                            activation=None,
-                                            use_bias=True,
-                                            kernel_initializer=None,
-                                            bias_initializer=tf.zeros_initializer(),
-                                            kernel_regularizer=None,
-                                            bias_regularizer=None,
-                                            activity_regularizer=None,
-                                            #kernel_constraint=None,
-                                            #bias_constraint=None,
-                                            trainable=True,
-                                            name='Output_layer',
-                                            reuse=None)
-
+        h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
         
-    # Batch normalization
-    if TF_DTYPE_USE == tf.float32:
-        h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
-    else:
-        h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
-#         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
-    # Activation
-    h_nn[net_layers_base] = net_base_activation_fcn(h_nn[net_layers_base])
-    
-    
+    with tf.name_scope('Dense_layers'):
+
+        # -- Initial layer
+        h_nn = OrderedDict()
+        with tf.name_scope('Input_layer'):
+            h_nn[0] = tf.layers.dense(h_flat,
+                                      net_neurons_base,
+                                      activation=None,
+                                      use_bias=True,
+                                      kernel_initializer=None,
+                                      bias_initializer=tf.zeros_initializer(),
+                                      kernel_regularizer=None,
+                                      bias_regularizer=None,
+                                      activity_regularizer=None,
+                                      #kernel_constraint=None,
+                                      #bias_constraint=None,
+                                      trainable=True,
+                                      name='Input_layer',
+                                      reuse=tf.AUTO_REUSE)
+
+            # Batch normalization
+            if TF_DTYPE_USE == tf.float32:
+                h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+            else:
+                h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+            # Activation
+            h_nn[0] = net_base_activation_fcn(h_nn[0])
+
+        # -- Rest of the layers
+        for idx_layer in range(1,net_layers_base):
+
+            with tf.name_scope('Hidden_layer_%d'%idx_layer):
+                h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
+                                                  net_neurons_base,
+                                                  activation=None,
+                                                  use_bias=True,
+                                                  kernel_initializer=None,
+                                                  bias_initializer=tf.zeros_initializer(),
+                                                  kernel_regularizer=None,
+                                                  bias_regularizer=None,
+                                                  activity_regularizer=None,
+                                                  #kernel_constraint=None,
+                                                  #bias_constraint=None,
+                                                  trainable=True,
+                                                  name='Hidden_layer_%d'%idx_layer,
+                                                  reuse=tf.AUTO_REUSE)
+
+
+                # Batch normalization
+                if TF_DTYPE_USE == tf.float32:
+                    h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
+                else:
+                    h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
+                # Activation
+                h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
+
+        # -- Final classification
+        with tf.name_scope('Output_layer'):
+            if num_clases == 1:
+                # If there is only one class, the output must be sigmoid
+                net_base_activation_fcn = tf.nn.sigmoid
+
+            h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
+                                                    num_clases,
+                                                    activation=None,
+                                                    use_bias=True,
+                                                    kernel_initializer=None,
+                                                    bias_initializer=tf.zeros_initializer(),
+                                                    kernel_regularizer=None,
+                                                    bias_regularizer=None,
+                                                    activity_regularizer=None,
+                                                    #kernel_constraint=None,
+                                                    #bias_constraint=None,
+                                                    trainable=True,
+                                                    name='Output_layer',
+                                                    reuse=tf.AUTO_REUSE)
+
+
+            # Batch normalization
+            if TF_DTYPE_USE == tf.float32:
+                h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
+            else:
+                h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
+            # Activation
+            h_nn[net_layers_base] = net_base_activation_fcn(h_nn[net_layers_base])
+
+
 
     # Softmaxed output
     if num_clases > 1:
