@@ -52,7 +52,10 @@ def create_restore_dict(graph_keys, old_scope, new_scope):
             # Split the tensor name by the first '/' to get the raw tensor name
             partition_nom = a.name[:-2].partition('/')
             # Construct the old tensor name using the old scope name
-            old_name = old_scope+'/'+partition_nom[-1]
+            if old_scope=='':
+                old_name = partition_nom[-1]
+            else:
+                old_name = old_scope+'/'+partition_nom[-1]
             # Assing the net tensor to the dictionary entry of the old name
             restore_dictinary[old_name] = a
         
