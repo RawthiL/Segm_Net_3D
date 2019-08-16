@@ -28,6 +28,43 @@ def bias_variable(shape, nombre):
     #return tf.Variable(initial)
     return tf.get_variable(nombre, dtype=TF_DTYPE_USE, initializer=initial)
 
+#-----------------------------------------------------------------------------#
+#--------------- Variable normalization --------------------------------------#
+#-----------------------------------------------------------------------------#
+
+def spectral_norm(w, iteration=1, nombre='u'):
+    w_shape = w.shape.as_list()
+    w = tf.reshape(w, [-1, w_shape[-1]])
+
+    with tf.variable_scope(nombre, reuse=tf.AUTO_REUSE):
+        u = tf.get_variable(nombre, [1, w_shape[-1]], initializer=tf.random_normal_initializer(), trainable=False)
+
+    u_hat = u
+    v_hat = None
+    for i in range(iteration):
+        
+        """
+        power iteration
+        Usually iteration = 1 will be enough
+        """
+        
+        v_ = tf.matmul(u_hat, tf.transpose(w))
+        v_hat = tf.nn.l2_normalize(v_)
+
+        u_ = tf.matmul(v_hat, w)
+        u_hat = tf.nn.l2_normalize(u_)
+
+    u_hat = tf.stop_gradient(u_hat)
+    v_hat = tf.stop_gradient(v_hat)
+
+    sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+
+    with tf.control_dependencies([u.assign(u_hat)]):
+        w_norm = w / sigma
+        w_norm = tf.reshape(w_norm, w_shape)
+
+
+    return w_norm
 
 #-----------------------------------------------------------------------------#
 #--------------- Variable loading --------------------------------------------#
@@ -112,10 +149,12 @@ def conv3d_up(x, W):
         return tf.nn.conv3d_transpose(x, W, output_shape, strides=[1, paso, paso, paso, 1], padding='SAME')
 
 # 3D Convolutional layer
-def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, layer_name, non_linear_function = tf.nn.relu):
+def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, layer_name, non_linear_function = tf.nn.relu, use_Spect_Norm = False):
     # Weight creation
     with tf.name_scope('weights'):
         W = weight_variable([filt_size[0], filt_size[1], filt_size[2], input_size, output_size], layer_name+'_weights')
+        if use_Spect_Norm:
+            W = spectral_norm(W, nombre=layer_name+'_u')
         variable_summaries(W)
     # Bias creation
     with tf.name_scope('biases'):
@@ -141,17 +180,17 @@ def nn_3D_conv_layer(input_tensor, input_size, output_size, filt_size, phase, la
 #--------------- 3D Segmentation Network Levels ------------------------------#
 #-----------------------------------------------------------------------------#
     
-def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name, non_lin_func = tf.nn.relu):
+def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase, layer_name, non_lin_func = tf.nn.relu, use_Spect_Norm = False):
     h = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First convolution layer creation 
-        h[0] = nn_3D_conv_layer(input_tensor, input_size, internal_size, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
+        h[0] = nn_3D_conv_layer(input_tensor, input_size, internal_size, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func, use_Spect_Norm = use_Spect_Norm)
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
+                h[i] = nn_3D_conv_layer(h[i-1], internal_size, internal_size, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func, use_Spect_Norm = use_Spect_Norm)
                 
         h_relu = h[N_conv-1]
             
@@ -159,6 +198,10 @@ def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size,
         # Weight creation
         with tf.name_scope('weights_down'):
             W = weight_variable([2, 2, 2, internal_size, internal_size], layer_name+'_weights_down_weights')
+            
+            if use_Spect_Norm:
+                W = spectral_norm(W, nombre=layer_name+'_u')
+                
             variable_summaries(W)
         # Down-convolution
         h_out = conv3d_down(h_relu, W)
@@ -590,6 +633,7 @@ def Assemble_Classification_Network(ph_entry,
                                     net_neurons_base, 
                                     net_layers_base,
                                     net_base_activation_fcn = tf.nn.sigmoid,
+                                    spectral_normalization = False,
                                     all_outs = False):
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
@@ -610,7 +654,8 @@ def Assemble_Classification_Network(ph_entry,
                                                        input_channels, 
                                                        level_channels, 
                                                        phase, 
-                                                       "Level_0_down") 
+                                                       "Level_0_down",
+                                                       use_Spect_Norm = spectral_normalization) 
         # Rest of the levels
         for down_path_index in range(1,network_depth):
             previous_level_channels = net_channels_down[down_path_index-1]
@@ -622,17 +667,27 @@ def Assemble_Classification_Network(ph_entry,
                                                                                        previous_level_channels, 
                                                                                        level_channels, 
                                                                                        phase, 
-                                                                                       "Level_%d_down"%down_path_index)
+                                                                                       "Level_%d_down"%down_path_index,
+                                                                                       use_Spect_Norm = spectral_normalization)
 
         # The base level is a fully connected layer for clasification
 
         h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
         
     with tf.name_scope('Dense_layers'):
+        
+        
+
 
         # -- Initial layer
         h_nn = OrderedDict()
-        with tf.name_scope('Input_layer'):
+        with tf.name_scope('FC_Input_layer'):
+            
+            # Set kernel contraint if needed
+            kern_const = None
+            if spectral_normalization:
+                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Input_layer_u')
+            
             h_nn[0] = tf.layers.dense(h_flat,
                                       net_neurons_base,
                                       activation=None,
@@ -642,10 +697,10 @@ def Assemble_Classification_Network(ph_entry,
                                       kernel_regularizer=None,
                                       bias_regularizer=None,
                                       activity_regularizer=None,
-                                      #kernel_constraint=None,
+                                      kernel_constraint=kern_const,
                                       #bias_constraint=None,
                                       trainable=True,
-                                      name='Input_layer',
+                                      name='FC_Input_layer',
                                       reuse=tf.AUTO_REUSE)
 
             # Batch normalization
@@ -660,7 +715,12 @@ def Assemble_Classification_Network(ph_entry,
         # -- Rest of the layers
         for idx_layer in range(1,net_layers_base):
 
-            with tf.name_scope('Hidden_layer_%d'%idx_layer):
+            with tf.name_scope('FC_Hidden_layer_%d'%idx_layer):
+                # Set kernel contraint if needed
+                kern_const = None
+                if spectral_normalization:
+                    kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Hidden_layer_%d'%idx_layer+'_u')
+
                 h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
                                                   net_neurons_base,
                                                   activation=None,
@@ -670,10 +730,10 @@ def Assemble_Classification_Network(ph_entry,
                                                   kernel_regularizer=None,
                                                   bias_regularizer=None,
                                                   activity_regularizer=None,
-                                                  #kernel_constraint=None,
+                                                  kernel_constraint=kern_const,
                                                   #bias_constraint=None,
                                                   trainable=True,
-                                                  name='Hidden_layer_%d'%idx_layer,
+                                                  name='FC_Hidden_layer_%d'%idx_layer,
                                                   reuse=tf.AUTO_REUSE)
 
 
@@ -687,7 +747,13 @@ def Assemble_Classification_Network(ph_entry,
                 h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
 
         # -- Final classification
-        with tf.name_scope('Output_layer'):
+        with tf.name_scope('FC_Output_layer'):
+            
+            # Set kernel contraint if needed
+            kern_const = None
+            if spectral_normalization:
+                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Output_layer_u')
+            
 
             h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
                                                     num_clases,
@@ -698,10 +764,10 @@ def Assemble_Classification_Network(ph_entry,
                                                     kernel_regularizer=None,
                                                     bias_regularizer=None,
                                                     activity_regularizer=None,
-                                                    #kernel_constraint=None,
+                                                    kernel_constraint=kern_const,
                                                     #bias_constraint=None,
                                                     trainable=True,
-                                                    name='Output_layer',
+                                                    name='FC_Output_layer',
                                                     reuse=tf.AUTO_REUSE)
 
 
