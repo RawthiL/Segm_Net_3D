@@ -17,16 +17,65 @@ DO_NOT_CREATE_SUMMARIES = False
 #--------------- Variable generation -----------------------------------------#
 #-----------------------------------------------------------------------------#
 
-def weight_variable(shape, nombre):
-    initial = tf.truncated_normal(shape, stddev=0.1, dtype=TF_DTYPE_USE)
-    #return tf.Variable(initial)
-    return tf.get_variable(nombre, dtype=TF_DTYPE_USE, initializer=initial)
+def weight_variable(shape_in, nombre, Initializer = 'xavier'):
+    
+    if Initializer == 'normal':
+        initial = tf.truncated_normal(shape_in, stddev=0.1, dtype=TF_DTYPE_USE)
+        #return tf.Variable(initial)
+        w_var =  tf.get_variable(nombre, dtype=TF_DTYPE_USE, initializer=initial)
+        
+    elif Initializer == 'xavier':        
+        w_var =  tf.get_variable(nombre, dtype=TF_DTYPE_USE, shape=shape_in,  initializer=tf.contrib.layers.xavier_initializer())
+        
+    else:
+        print('Initializer not found')
+        error()
+    
+    return w_var
 
 
 def bias_variable(shape, nombre):
     initial = tf.constant(0.1, shape=shape, dtype=TF_DTYPE_USE)
     #return tf.Variable(initial)
     return tf.get_variable(nombre, dtype=TF_DTYPE_USE, initializer=initial)
+
+
+def trilinear_upsample_kernel_weight_variable(shape, nombre):
+    
+    # Get the size of the filter
+    kernel_size = shape[0]
+    
+    # Calculate the center anf factor
+    factor = (kernel_size + 1) // 2
+    if kernel_size % 2 == 1:
+        center = factor - 1
+    else:
+        center = factor - 0.5
+    # Create a list of vectors in each axis
+    og = np.ogrid[:kernel_size, :kernel_size, :kernel_size]
+    # Create the filter by multiplication of the three vecors, 
+    # each vector contains a linear interpolator from the center
+    filt = (1 - abs(og[0] - center) / factor) * \
+           (1 - abs(og[1] - center) / factor) * \
+           (1 - abs(og[2] - center) / factor)
+    
+    # Expand the filter to the desired shape by repeating its structure
+    filt_expanded = filt[:,:,:,np.newaxis,np.newaxis]
+    filt_expanded = np.repeat(filt_expanded, shape[3], axis=3)
+    filt_expanded = np.repeat(filt_expanded, shape[4], axis=4)
+    
+    # Cast to selected type
+    if TF_DTYPE_USE == tf.float32:
+        filt_expanded = filt_expanded.astype(np.float32)
+    elif TF_DTYPE_USE == tf.float16:
+        filt_expanded = filt_expanded.astype(np.float16)
+    
+    # Initialize the variables using the filter values
+    return tf.get_variable(nombre, dtype=TF_DTYPE_USE, initializer=filt_expanded)
+    
+    
+    
+    
 
 #-----------------------------------------------------------------------------#
 #--------------- Variable normalization --------------------------------------#
@@ -197,7 +246,9 @@ def Descendent_level(N_conv, filt_size, input_tensor, input_size, internal_size,
         # After creating all internal layers, we perform the down-convolution
         # Weight creation
         with tf.name_scope('weights_down'):
-            W = weight_variable([2, 2, 2, internal_size, internal_size], layer_name+'_weights_down_weights')
+            #W = weight_variable([2, 2, 2, internal_size, internal_size], layer_name+'_weights_down_weights')
+            W = trilinear_upsample_kernel_weight_variable([2, 2, 2, internal_size, internal_size], 
+                                                          layer_name+'_weights_down_weights')
             
             if use_Spect_Norm:
                 W = spectral_norm(W, nombre=layer_name+'_u')
@@ -227,7 +278,9 @@ def Base_level(N_conv, filt_size, input_tensor, input_size, internal_size, phase
         # After creating all internal layers, we perform the up-convolution
         # Weight creation
         with tf.name_scope('weights_up'):
-            W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
+            #W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
+            W = trilinear_upsample_kernel_weight_variable([2, 2, 2, internal_size//2, internal_size], 
+                                                          layer_name+'_weights_up_weights')
             variable_summaries(W)
         # Up-convolution
         h_out = conv3d_up(h_relu, W)
@@ -257,7 +310,9 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
         if not last_level:
             # Weight creation
             with tf.name_scope(layer_name+'weights_up'):
-                W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
+                #W = weight_variable([2, 2, 2, internal_size//2, internal_size], layer_name+'_weights_up_weights')
+                W = trilinear_upsample_kernel_weight_variable([2, 2, 2, internal_size//2, internal_size], 
+                                                              layer_name+'_weights_up_weights')
                 variable_summaries(W)
             # Up-convolution
             h_out = conv3d_up(h_relu, W)
@@ -271,17 +326,20 @@ def Ascendent_level(N_conv, filt_size, input_tensor, input_size, internal_size, 
     
 def Output_layer(N_conv, filt_size, input_tensor, input_size, out_chanels, phase, layer_name, non_lin_func = tf.nn.relu):
     h = OrderedDict()
+    h_raw = OrderedDict()
     # Adding a name scope ensures logical grouping of the layers in the graph.
     with tf.name_scope(layer_name):
         # First the convolution layer creation 
-        h[0] = nn_3D_conv_layer(input_tensor, input_size, out_chanels, filt_size, phase, layer_name+"_0", non_linear_function = non_lin_func)
+        h_raw[0] = nn_3D_conv_layer(input_tensor, input_size, out_chanels, filt_size, phase, layer_name+"_0", non_linear_function = None)
+        h[0] = non_lin_func(h_raw[0])
         # If there are mores layers in this level, lets create them
         if N_conv > 1:
             for i in range(1,N_conv):
                 # Convolutional layer creation
-                h[i] = nn_3D_conv_layer(h[i-1], out_chanels, out_chanels, filt_size, phase, layer_name+"_%d"%i, non_linear_function = non_lin_func)
+                h_raw[i] = nn_3D_conv_layer(h[i-1], out_chanels, out_chanels, filt_size, phase, layer_name+"_%d"%i, non_linear_function = None)
+                h[i] = non_lin_func(h_raw[i])
         # Finally we return the output maps
-        return (h[N_conv-1])
+        return (h[N_conv-1], h_raw[N_conv-1])
     
 
 #-----------------------------------------------------------------------------#
@@ -302,10 +360,18 @@ def Assemble_Tenxture_Network(ph_entry,
                                  net_channels_up, 
                                  net_layers_up, 
                                  net_layers_output,
-                                 num_textures = 1 ):
+                                 num_textures = 1,
+                             all_outs = False):
     
     # Get basic V-Net Structure
-    v_out = Assemble_Network(ph_entry, 
+    (v_out,
+     h_out,
+     h_down, 
+     h_relu_down, 
+     h_base,
+     h_relu_base, 
+     h_up, 
+     h_relu_up) = Assemble_Network(ph_entry, 
                          phase, 
                          input_size, 
                          input_channels, 
@@ -320,12 +386,18 @@ def Assemble_Tenxture_Network(ph_entry,
                          net_channels_up, 
                          net_layers_up, 
                          net_layers_output, 
-                         all_outs = False) 
+                         all_outs = True) 
     
-    with tf.name_scope('sigmoid_node'):
-        sigmoid_out = tf.nn.sigmoid(v_out)
+    #with tf.name_scope('sigmoid_node'):
+    #    h_alin_out = tf.nn.sigmoid(h_out)
+    
+    with tf.name_scope('tanh_relu_node'):
+        h_alin_out = tf.nn.tanh(v_out)
         
-    return sigmoid_out, v_out
+    if all_outs:
+        return h_alin_out, h_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+    else:
+        return h_alin_out, h_out
 
 
 
@@ -344,10 +416,18 @@ def Assemble_Segmentation_Network(ph_entry,
                                  net_layers_base, 
                                  net_channels_up, 
                                  net_layers_up, 
-                                 net_layers_segm):
+                                 net_layers_segm,
+                                 all_outs = False):
     
     # Get basic V-Net Structure
-    v_out = Assemble_Network(ph_entry, 
+    (v_out,
+     h_out,
+     h_down, 
+     h_relu_down, 
+     h_base,
+     h_relu_base, 
+     h_up, 
+     h_relu_up) = Assemble_Network(ph_entry, 
                          phase, 
                          input_size, 
                          input_channels, 
@@ -362,12 +442,15 @@ def Assemble_Segmentation_Network(ph_entry,
                          net_channels_up, 
                          net_layers_up, 
                          net_layers_segm, 
-                         all_outs = False) 
+                         all_outs = True) 
     
     with tf.name_scope('softmax_node'):
-        soft_out = tf.nn.softmax(v_out,-1)
+        soft_out = tf.nn.softmax(h_out,-1)
         
-    return soft_out, v_out
+    if all_outs:
+        return soft_out, h_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+    else:
+        return soft_out, h_out
 
 
 def Assemble_Mixed_Segment_Texture_Network(ph_entry, 
@@ -387,13 +470,15 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
                                            net_layers_segm,
                                            net_texture_neurons,
                                            net_layers_texture,
-                                           acivation_fcn = tf.nn.sigmoid):
+                                           acivation_fcn = tf.nn.sigmoid,
+                                          all_outs = False):
 
 
 
     with tf.name_scope('Base_network'):
 
         (h_relu_out,
+         h_out,
          h_down, 
          h_relu_down, 
          h_base,
@@ -417,7 +502,7 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
                                         all_outs = True)
     
     with tf.name_scope('Segmentation_softmax_node'):
-        soft_out = tf.nn.softmax(h_relu_out,-1)
+        soft_out = tf.nn.softmax(h_out,-1)
     
     # Add aditional layers for texturing 
     with tf.name_scope("Terxturing_layers"):
@@ -499,12 +584,179 @@ def Assemble_Mixed_Segment_Texture_Network(ph_entry,
             h_nn[net_layers_texture] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_texture],dtype=tf.float32), training=phase),dtype=tf.float16);
 #             h_nn[net_layers_texture] = tf.layers.batch_normalization(h_nn[net_layers_texture], training=phase, fused=False);
         # Activation
-        texture_tensor = acivation_fcn(h_nn[net_layers_texture])
-       
+        #texture_tensor = acivation_fcn(h_nn[net_layers_texture])
+        #texture_tensor = tf.nn.sigmoid(h_nn[net_layers_texture])
+        texture_tensor = tf.nn.tanh(tf.nn.relu(h_nn[net_layers_texture]))
         
         
+    if all_outs:
+        return soft_out, h_out, texture_tensor, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+    else:
+        return soft_out, h_out, texture_tensor
+
+
+
+
+
+def Assemble_Labeled_Texture_Network(ph_entry, 
+                                           phase, 
+                                           input_size, 
+                                           input_channels, 
+                                           num_clases, 
+                                           size_filt_fine, 
+                                           size_filt_out,
+                                           network_depth, 
+                                           net_channels_down, 
+                                           net_layers_down, 
+                                           net_channels_base, 
+                                           net_layers_base, 
+                                           net_channels_up, 
+                                           net_layers_up, 
+                                           net_layers_segm,
+                                           net_layers_out_text,
+                                           acivation_fcn = tf.nn.sigmoid, 
+                                     all_outs = False):
+
+
+
+    with tf.name_scope('Texture_network'):
+        
+        (texture_tensor, 
+        h_out,
+        h_down, 
+        h_relu_down, 
+        h_base, 
+        h_relu_base, 
+        h_up, 
+        h_relu_up ) = Assemble_Tenxture_Network(ph_entry, 
+                                                          phase, 
+                                                          input_size, 
+                                                          input_channels, 
+                                                          size_filt_fine, 
+                                                          size_filt_out,
+                                                          network_depth, 
+                                                          net_channels_down, 
+                                                          net_layers_down, 
+                                                          net_channels_base, 
+                                                          net_layers_base, 
+                                                          net_channels_up, 
+                                                          net_layers_up, 
+                                                          net_layers_out_text,
+                                                          num_textures = 1,
+                                                         all_outs = True)
+
+        
+    with tf.name_scope('Segmentation_network'):
+        # This s the convolutional segmentation layer, takes the 
+        # texture image and computes the labels from it
+        (h_relu_out, h_out) = Output_layer(net_layers_segm[0], 
+                                           size_filt_out, 
+                                           texture_tensor, 
+                                           1, 
+                                           num_clases, 
+                                           phase, 
+                                           "Output_level_segmentation")
+        
+        
+        with tf.name_scope('softmax_node'):
+            soft_out = tf.nn.softmax(h_out,-1)
     
-    return soft_out, h_relu_out, texture_tensor
+    if all_outs:
+        return soft_out, h_out, texture_tensor, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+    else:
+        return soft_out, h_out, texture_tensor
+
+
+def Assemble_Segmentation_and_Texture_FullyConvolutional(ph_entry, 
+                                                         phase, 
+                                                         input_size, 
+                                                         input_channels, 
+                                                         num_clases, 
+                                                         num_tex,
+                                                         size_filt_fine, 
+                                                         size_filt_out,
+                                                         size_filt_tex,
+                                                         network_depth, 
+                                                         net_channels_down, 
+                                                         net_layers_down, 
+                                                         net_channels_base, 
+                                                         net_layers_base, 
+                                                         net_channels_up, 
+                                                         net_layers_up, 
+                                                         net_layers_out,
+                                                         net_layers_text,
+                                                         acivation_fcn = tf.nn.sigmoid, 
+                                                         sigmoid_overshot = 0.3,
+                                                         all_outs = False):
+    
+    with tf.name_scope('Base_network'):
+
+        (h_relu_out,
+         h_out_full,
+         h_down, 
+         h_relu_down, 
+         h_base,
+         h_relu_base, 
+         h_up, 
+         h_relu_up)  = Assemble_Network(ph_entry, 
+                                        phase, 
+                                        input_size, 
+                                        input_channels, 
+                                        num_clases+net_layers_text, 
+                                        size_filt_fine, 
+                                        size_filt_out,
+                                        network_depth, 
+                                        net_channels_down, 
+                                        net_layers_down, 
+                                        net_channels_base, 
+                                        net_layers_base, 
+                                        net_channels_up, 
+                                        net_layers_up, 
+                                        net_layers_out, 
+                                        all_outs = True)
+        # Split
+        h_out_segm, h_out_text = tf.split(h_out_full, [num_clases, net_layers_text], axis = 4)
+            
+    with tf.name_scope('Segmentation_layers'):
+
+        # First 3 outs are segmentation
+        h_soft_segm_out = tf.nn.softmax(h_out_segm,-1)
+            
+    with tf.name_scope('Texturing_Layers'):
+        # Last outs are texture
+        # we add couple more convolutional layers
+        
+        if net_layers_text > 1:
+            (h_out_text_mid, h_out_text_mid_raw) = Output_layer(net_layers_text, 
+                                           size_filt_tex, 
+                                           h_out_text, 
+                                           net_layers_text, 
+                                           net_layers_text, 
+                                           phase, 
+                                           "Texturing_Layers_mid")
+        else:
+            h_out_text_mid = h_out_text
+            h_out_text_mid_raw = h_out_text
+
+        (_, h_out_text_fine_raw) = Output_layer(1, 
+                                       size_filt_tex, 
+                                       h_out_text_mid, 
+                                       net_layers_text, 
+                                       num_tex, 
+                                       phase, 
+                                       "Texturing_Layers_out")
+
+        h_out_text_fine = acivation_fcn(h_out_text_fine_raw)
+        
+        if acivation_fcn == tf.nn.sigmoid:
+            h_out_text_fine = h_out_text_fine*(1+sigmoid_overshot)
+
+                        
+    if all_outs:
+        return h_soft_segm_out, h_out_text_fine, h_out_segm, h_out_text_fine_raw, h_out_text, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+    else:
+        return h_soft_segm_out, h_out_text_fine, h_out_segm, h_out_text_fine_raw
+
 
 def Assemble_Network(ph_entry, 
                      phase, 
@@ -601,13 +853,13 @@ def Assemble_Network(ph_entry,
 
     
     # -- Finally we construct the output layer
-    (h_relu_out) = Output_layer(net_layers_output[0], 
-                                      size_filt_out, 
-                                      h_relu_up[0], 
-                                      net_channels_up[0], 
-                                      num_clases, 
-                                      phase, 
-                                      "Output_level")
+    (h_relu_out, h_out) = Output_layer(net_layers_output[0], 
+                                       size_filt_out, 
+                                       h_relu_up[0], 
+                                       net_channels_up[0], 
+                                       num_clases, 
+                                       phase, 
+                                       "Output_level")
   
 
 
@@ -615,9 +867,9 @@ def Assemble_Network(ph_entry,
         
     # And we return the network topology
     if all_outs:
-        return h_relu_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
+        return h_relu_out, h_out, h_down, h_relu_down, h_base, h_relu_base, h_up, h_relu_up
     else:
-        return h_relu_out
+        return h_relu_out, h_out
     
     
 
@@ -641,7 +893,7 @@ def Assemble_Classification_Network(ph_entry,
     x_vol = tf.reshape(ph_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
     
     # Feature extraction levels
-    with tf.name_scope('Convolutional_layers'):
+    with tf.variable_scope('Convolutional_layers'):
 
         # First level:
         level_channels = net_channels_down[0]
@@ -674,14 +926,14 @@ def Assemble_Classification_Network(ph_entry,
 
         h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
         
-    with tf.name_scope('Dense_layers'):
+    with tf.variable_scope('Dense_layers'):
         
         
 
 
         # -- Initial layer
         h_nn = OrderedDict()
-        with tf.name_scope('FC_Input_layer'):
+        with tf.variable_scope('FC_Input_layer'):
             
             # Set kernel contraint if needed
             kern_const = None
@@ -715,7 +967,7 @@ def Assemble_Classification_Network(ph_entry,
         # -- Rest of the layers
         for idx_layer in range(1,net_layers_base):
 
-            with tf.name_scope('FC_Hidden_layer_%d'%idx_layer):
+            with tf.variable_scope('FC_Hidden_layer_%d'%idx_layer):
                 # Set kernel contraint if needed
                 kern_const = None
                 if spectral_normalization:
@@ -747,7 +999,7 @@ def Assemble_Classification_Network(ph_entry,
                 h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
 
         # -- Final classification
-        with tf.name_scope('FC_Output_layer'):
+        with tf.variable_scope('FC_Output_layer'):
             
             # Set kernel contraint if needed
             kern_const = None
@@ -779,28 +1031,282 @@ def Assemble_Classification_Network(ph_entry,
         #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
             
             
-            # Activation
-            if num_clases == 1:
-                # If there is only one class, the output must be sigmoid
-                net_out = tf.nn.sigmoid(h_nn[net_layers_base])
-            else:
-                net_out = net_base_activation_fcn(h_nn[net_layers_base])
 
     
 
-    # Softmaxed output
+    # Probability output output
     if num_clases > 1:
-        softmax_out = tf.nn.softmax(net_out,-1)
+        softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
     else:
-        softmax_out = net_out
+        # If there is only one class, the output must be sigmoid
+        softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
     
     
     # And we return the network topology
     if all_outs:
-        return softmax_out, net_out, h_nn, h_flat, h_down, h_relu_down
+        return softmax_out, h_nn[net_layers_base], h_nn, h_flat, h_down, h_relu_down
     else:
-        return softmax_out, net_out
+        return softmax_out, h_nn[net_layers_base]
     
+    
+    
+    
+
+
+def Assemble_MultiScale_Classification_Network(list_entry, 
+                                               phase, 
+                                               input_size, 
+                                               input_channels, 
+                                               num_clases, 
+                                               size_filt_fine, 
+                                               network_depth, 
+                                               net_channels_down, 
+                                               net_layers_down, 
+                                               net_neurons_base, 
+                                               net_layers_base,
+                                               net_base_activation_fcn = tf.nn.sigmoid,
+                                               spectral_normalization = False,
+                                               all_outs = False):
+    
+    # "list_entry" contains a list of all the expansions of the input volume (as tensors)
+    full_scale_entry = list_entry[0]
+    
+    # The input tensor must be reshaped as a 5d tensor, with last dimension the 
+    # color channels
+    x_vol = tf.reshape(full_scale_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
+    
+    # Feature extraction levels
+    with tf.variable_scope('Convolutional_layers'):
+
+        # First level (no concatenation, just the input):
+        level_channels = net_channels_down[0]
+        level_layers = net_layers_down[0]
+        h_down = OrderedDict()
+        h_relu_down = OrderedDict()
+        (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
+                                                       size_filt_fine, 
+                                                       x_vol, 
+                                                       input_channels, 
+                                                       level_channels, 
+                                                       phase, 
+                                                       "Level_0_down",
+                                                       use_Spect_Norm = spectral_normalization) 
+        # Rest of the levels
+        h_scalled_inputs = list()
+        for down_path_index in range(1,network_depth):
+
+            previous_level_channels = net_channels_down[down_path_index-1]
+            level_channels = net_channels_down[down_path_index]
+            level_layers = net_layers_down[down_path_index]
+            
+            # Convert low resolution sample to input channels
+            level_scaled_entry = nn_3D_conv_layer(list_entry[down_path_index], 
+                                                  1, 
+                                                  previous_level_channels, 
+                                                  [1,1,1], 
+                                                  phase, 
+                                                  "image2feature_%d"%down_path_index, 
+                                                  non_linear_function = None)
+            # Queep list
+            h_scalled_inputs.append(level_scaled_entry)
+            
+            # Concatenate
+            h_cat = tf.concat([level_scaled_entry, h_down[down_path_index-1]], 4) 
+            
+            # Apply
+            (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
+                                                                                       size_filt_fine, 
+                                                                                       h_cat, 
+                                                                                       previous_level_channels*2, 
+                                                                                       level_channels, 
+                                                                                       phase, 
+                                                                                       "Level_%d_down"%down_path_index,
+                                                                                       use_Spect_Norm = spectral_normalization)
+
+        # The base level is a fully connected layer for clasification
+
+        h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
+        
+    with tf.variable_scope('Dense_layers'):
+        
+        
+
+
+        # -- Initial layer
+        h_nn = OrderedDict()
+        with tf.variable_scope('FC_Input_layer'):
+            
+            # Set kernel contraint if needed
+            kern_const = None
+            if spectral_normalization:
+                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Input_layer_u')
+            
+            h_nn[0] = tf.layers.dense(h_flat,
+                                      net_neurons_base,
+                                      activation=None,
+                                      use_bias=True,
+                                      kernel_initializer=None,
+                                      bias_initializer=tf.zeros_initializer(),
+                                      kernel_regularizer=None,
+                                      bias_regularizer=None,
+                                      activity_regularizer=None,
+                                      kernel_constraint=kern_const,
+                                      #bias_constraint=None,
+                                      trainable=True,
+                                      name='FC_Input_layer',
+                                      reuse=tf.AUTO_REUSE)
+
+            # Batch normalization
+            if TF_DTYPE_USE == tf.float32:
+                h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+            else:
+                h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+            # Activation
+            h_nn[0] = net_base_activation_fcn(h_nn[0])
+
+        # -- Rest of the layers
+        for idx_layer in range(1,net_layers_base):
+
+            with tf.variable_scope('FC_Hidden_layer_%d'%idx_layer):
+                # Set kernel contraint if needed
+                kern_const = None
+                if spectral_normalization:
+                    kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Hidden_layer_%d'%idx_layer+'_u')
+
+                h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
+                                                  net_neurons_base,
+                                                  activation=None,
+                                                  use_bias=True,
+                                                  kernel_initializer=None,
+                                                  bias_initializer=tf.zeros_initializer(),
+                                                  kernel_regularizer=None,
+                                                  bias_regularizer=None,
+                                                  activity_regularizer=None,
+                                                  kernel_constraint=kern_const,
+                                                  #bias_constraint=None,
+                                                  trainable=True,
+                                                  name='FC_Hidden_layer_%d'%idx_layer,
+                                                  reuse=tf.AUTO_REUSE)
+
+
+                # Batch normalization
+                if TF_DTYPE_USE == tf.float32:
+                    h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
+                else:
+                    h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
+                # Activation
+                h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
+
+        # -- Final classification
+        with tf.variable_scope('FC_Output_layer'):
+            
+            # Set kernel contraint if needed
+            kern_const = None
+            if spectral_normalization:
+                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Output_layer_u')
+            
+
+            h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
+                                                    num_clases,
+                                                    activation=None,
+                                                    use_bias=True,
+                                                    kernel_initializer=None,
+                                                    bias_initializer=tf.zeros_initializer(),
+                                                    kernel_regularizer=None,
+                                                    bias_regularizer=None,
+                                                    activity_regularizer=None,
+                                                    kernel_constraint=kern_const,
+                                                    #bias_constraint=None,
+                                                    trainable=True,
+                                                    name='FC_Output_layer',
+                                                    reuse=tf.AUTO_REUSE)
+
+
+            # Batch normalization
+            if TF_DTYPE_USE == tf.float32:
+                h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
+            else:
+                h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
+        #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
+            
+            
+
+    
+
+    # Probability output output
+    if num_clases > 1:
+        softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
+    else:
+        # If there is only one class, the output must be sigmoid
+        softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
+    
+    
+    # And we return the network topology
+    if all_outs:
+        return softmax_out, h_nn[net_layers_base], h_nn, h_flat, h_down, h_relu_down
+    else:
+        return softmax_out, h_nn[net_layers_base]
+    
+   
+def Pixel_ClassNet(pixel_in, num_hidden_units, num_layers, num_clases_out, acivation_fcn = tf.nn.sigmoid):
+    
+    h_nn = OrderedDict()
+    
+    # Input layer
+    with tf.variable_scope("Input_layer"):
+        h_nn[0] = tf.contrib.layers.fully_connected(pixel_in,
+                                          num_hidden_units,
+                                          activation_fn=acivation_fcn,
+                                          weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                          biases_initializer=tf.zeros_initializer(),
+                                          reuse=tf.AUTO_REUSE,
+                                          scope='Input_layer',
+                                          trainable=True)
+
+    with tf.variable_scope("Hidden_layers"):
+        for idx_layer in range(1,num_layers):
+
+            h_nn[idx_layer] = tf.contrib.layers.fully_connected(h_nn[idx_layer-1],
+                                                  num_hidden_units,
+                                                  activation_fn=acivation_fcn,
+                                                  weights_initializer= tf.contrib.layers.xavier_initializer(),
+                                                  biases_initializer=tf.zeros_initializer(),
+                                                  reuse=tf.AUTO_REUSE,
+                                                  scope='Hidden_layer_%d'%idx_layer,
+                                                  trainable=True)
+
+    with tf.variable_scope("Output_layer"):
+        
+        h_nn[num_layers] = tf.contrib.layers.fully_connected(h_nn[num_layers-1],
+                                                             num_clases_out,
+                                                             activation_fn=None,
+                                                             weights_initializer= tf.contrib.layers.xavier_initializer(),
+                                                             biases_initializer= tf.zeros_initializer(),
+                                                             reuse=tf.AUTO_REUSE,
+                                                             scope='Output_layer',
+                                                             trainable=True)
+        
+    with tf.variable_scope("class_layer"):
+        
+        if num_clases_out == 1:
+            out_soft = tf.nn.sigmoid(h_nn[num_layers])
+        else:
+            out_soft = tf.nn.softmax(tf.nn.relu(h_nn[num_layers]), axis = -1)
+            
+    return out_soft
+        
+
+def assemble_CT_SegmNet(CT_input_tensor, num_hidden_units, num_layers, num_clases_out, acivation_fcn = tf.nn.relu):
+    
+    map_function = lambda x: Pixel_ClassNet(x, 
+                                            num_hidden_units, 
+                                            num_layers, 
+                                            num_clases_out, 
+                                            acivation_fcn = acivation_fcn)
+    
+    return tf.map_fn(map_function, CT_input_tensor)
     
     
     
