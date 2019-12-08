@@ -872,201 +872,68 @@ def Assemble_Network(ph_entry,
         return h_relu_out, h_out
     
     
-
-def Assemble_Classification_Network(ph_entry, 
-                                    phase, 
-                                    input_size, 
-                                    input_channels, 
-                                    num_clases, 
-                                    size_filt_fine, 
-                                    network_depth, 
-                                    net_channels_down, 
-                                    net_layers_down, 
-                                    net_neurons_base, 
-                                    net_layers_base,
-                                    net_base_activation_fcn = tf.nn.sigmoid,
-                                    spectral_normalization = False,
-                                    all_outs = False):
+def Assemble_Classification_Featuring_Network(ph_entry, 
+                                         phase, 
+                                         input_size, 
+                                         input_channels, 
+                                         size_filt_fine, 
+                                         network_depth, 
+                                         net_channels_down, 
+                                         net_layers_down, 
+                                         spectral_normalization = False):
     
     # The input tensor must be reshaped as a 5d tensor, with last dimension the 
     # color channels
     x_vol = tf.reshape(ph_entry, [-1, input_size[0], input_size[1], input_size[2], input_channels])
     
     # Feature extraction levels
-    with tf.variable_scope('Convolutional_layers'):
-
-        # First level:
-        level_channels = net_channels_down[0]
-        level_layers = net_layers_down[0]
-        h_down = OrderedDict()
-        h_relu_down = OrderedDict()
-        (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
-                                                       size_filt_fine, 
-                                                       x_vol, 
-                                                       input_channels, 
-                                                       level_channels, 
-                                                       phase, 
-                                                       "Level_0_down",
-                                                       use_Spect_Norm = spectral_normalization) 
-        # Rest of the levels
-        for down_path_index in range(1,network_depth):
-            previous_level_channels = net_channels_down[down_path_index-1]
-            level_channels = net_channels_down[down_path_index]
-            level_layers = net_layers_down[down_path_index]
-            (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
-                                                                                       size_filt_fine, 
-                                                                                       h_down[down_path_index-1], 
-                                                                                       previous_level_channels, 
-                                                                                       level_channels, 
-                                                                                       phase, 
-                                                                                       "Level_%d_down"%down_path_index,
-                                                                                       use_Spect_Norm = spectral_normalization)
-
-        # The base level is a fully connected layer for clasification
-
-        h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
-        
-    with tf.variable_scope('Dense_layers'):
-        
-        
 
 
-        # -- Initial layer
-        h_nn = OrderedDict()
-        with tf.variable_scope('FC_Input_layer'):
-            
-            # Set kernel contraint if needed
-            kern_const = None
-            if spectral_normalization:
-                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Input_layer_u')
-            
-            h_nn[0] = tf.layers.dense(h_flat,
-                                      net_neurons_base,
-                                      activation=None,
-                                      use_bias=True,
-                                      kernel_initializer=None,
-                                      bias_initializer=tf.zeros_initializer(),
-                                      kernel_regularizer=None,
-                                      bias_regularizer=None,
-                                      activity_regularizer=None,
-                                      kernel_constraint=kern_const,
-                                      #bias_constraint=None,
-                                      trainable=True,
-                                      name='FC_Input_layer',
-                                      reuse=tf.AUTO_REUSE)
+    # First level:
+    level_channels = net_channels_down[0]
+    level_layers = net_layers_down[0]
+    h_down = OrderedDict()
+    h_relu_down = OrderedDict()
+    (h_down[0], h_relu_down[0]) = Descendent_level(level_layers, 
+                                                   size_filt_fine, 
+                                                   x_vol, 
+                                                   input_channels, 
+                                                   level_channels, 
+                                                   phase, 
+                                                   "Level_0_down",
+                                                   use_Spect_Norm = spectral_normalization) 
+    # Rest of the levels
+    for down_path_index in range(1,network_depth):
+        previous_level_channels = net_channels_down[down_path_index-1]
+        level_channels = net_channels_down[down_path_index]
+        level_layers = net_layers_down[down_path_index]
+        (h_down[down_path_index], h_relu_down[down_path_index]) = Descendent_level(level_layers, 
+                                                                                   size_filt_fine, 
+                                                                                   h_down[down_path_index-1], 
+                                                                                   previous_level_channels, 
+                                                                                   level_channels, 
+                                                                                   phase, 
+                                                                                   "Level_%d_down"%down_path_index,
+                                                                                   use_Spect_Norm = spectral_normalization)
 
-            # Batch normalization
-            if TF_DTYPE_USE == tf.float32:
-                h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
-            else:
-                h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
-            # Activation
-            h_nn[0] = net_base_activation_fcn(h_nn[0])
+    # The base level is a fully connected layer for clasification
 
-        # -- Rest of the layers
-        for idx_layer in range(1,net_layers_base):
-
-            with tf.variable_scope('FC_Hidden_layer_%d'%idx_layer):
-                # Set kernel contraint if needed
-                kern_const = None
-                if spectral_normalization:
-                    kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Hidden_layer_%d'%idx_layer+'_u')
-
-                h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
-                                                  net_neurons_base,
-                                                  activation=None,
-                                                  use_bias=True,
-                                                  kernel_initializer=None,
-                                                  bias_initializer=tf.zeros_initializer(),
-                                                  kernel_regularizer=None,
-                                                  bias_regularizer=None,
-                                                  activity_regularizer=None,
-                                                  kernel_constraint=kern_const,
-                                                  #bias_constraint=None,
-                                                  trainable=True,
-                                                  name='FC_Hidden_layer_%d'%idx_layer,
-                                                  reuse=tf.AUTO_REUSE)
+    h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
 
 
-                # Batch normalization
-                if TF_DTYPE_USE == tf.float32:
-                    h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
-                else:
-                    h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
-                # Activation
-                h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
-
-        # -- Final classification
-        with tf.variable_scope('FC_Output_layer'):
-            
-            # Set kernel contraint if needed
-            kern_const = None
-            if spectral_normalization:
-                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Output_layer_u')
-            
-
-            h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
-                                                    num_clases,
-                                                    activation=None,
-                                                    use_bias=True,
-                                                    kernel_initializer=None,
-                                                    bias_initializer=tf.zeros_initializer(),
-                                                    kernel_regularizer=None,
-                                                    bias_regularizer=None,
-                                                    activity_regularizer=None,
-                                                    kernel_constraint=kern_const,
-                                                    #bias_constraint=None,
-                                                    trainable=True,
-                                                    name='FC_Output_layer',
-                                                    reuse=tf.AUTO_REUSE)
+    return x_vol, h_down, h_relu_down, h_flat
 
 
-            # Batch normalization
-            if TF_DTYPE_USE == tf.float32:
-                h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
-            else:
-                h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
-            
-            
 
-    
-
-    # Probability output output
-    if num_clases > 1:
-        softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
-    else:
-        # If there is only one class, the output must be sigmoid
-        softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
-    
-    
-    # And we return the network topology
-    if all_outs:
-        return softmax_out, h_nn[net_layers_base], h_nn, h_flat, h_down, h_relu_down
-    else:
-        return softmax_out, h_nn[net_layers_base]
-    
-    
-    
-    
-
-
-def Assemble_MultiScale_Classification_Network(list_entry, 
-                                               phase, 
-                                               input_size, 
-                                               input_channels, 
-                                               num_clases, 
-                                               size_filt_fine, 
-                                               network_depth, 
-                                               net_channels_down, 
-                                               net_layers_down, 
-                                               net_neurons_base, 
-                                               net_layers_base,
-                                               net_base_activation_fcn = tf.nn.sigmoid,
-                                               spectral_normalization = False,
-                                               all_outs = False):
+def Assemble_Muliscale_Classification_Featuring_Network(list_entry, 
+                                                        phase, 
+                                                        input_size, 
+                                                        input_channels, 
+                                                        size_filt_fine, 
+                                                        network_depth, 
+                                                        net_channels_down, 
+                                                        net_layers_down, 
+                                                        spectral_normalization = False):
     
     # "list_entry" contains a list of all the expansions of the input volume (as tensors)
     full_scale_entry = list_entry[0]
@@ -1126,121 +993,235 @@ def Assemble_MultiScale_Classification_Network(list_entry,
         # The base level is a fully connected layer for clasification
 
         h_flat = tf.contrib.layers.flatten(h_down[network_depth-1])
-        
-    with tf.variable_scope('Dense_layers'):
-        
-        
 
 
-        # -- Initial layer
-        h_nn = OrderedDict()
-        with tf.variable_scope('FC_Input_layer'):
-            
+    return x_vol, h_down, h_relu_down, h_flat
+
+
+
+def Assemble_Classification_FC(h_flat,
+                               phase,
+                               num_clases,
+                               net_neurons_base,
+                               net_layers_base,
+                               net_base_activation_fcn = tf.nn.sigmoid,
+                              spectral_normalization = False):
+    
+    # -- Initial layer
+    h_nn = OrderedDict()
+    with tf.variable_scope('FC_Input_layer'):
+
+        # Set kernel contraint if needed
+        kern_const = None
+        if spectral_normalization:
+            kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Input_layer_u')
+
+        h_nn[0] = tf.layers.dense(h_flat,
+                                  net_neurons_base,
+                                  activation=None,
+                                  use_bias=True,
+                                  kernel_initializer=None,
+                                  bias_initializer=tf.zeros_initializer(),
+                                  kernel_regularizer=None,
+                                  bias_regularizer=None,
+                                  activity_regularizer=None,
+                                  kernel_constraint=kern_const,
+                                  #bias_constraint=None,
+                                  trainable=True,
+                                  name='FC_Input_layer',
+                                  reuse=tf.AUTO_REUSE)
+
+        # Batch normalization
+        if TF_DTYPE_USE == tf.float32:
+            h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+        else:
+            h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
+    #         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+        # Activation
+        h_nn[0] = net_base_activation_fcn(h_nn[0])
+
+    # -- Rest of the layers
+    for idx_layer in range(1,net_layers_base):
+
+        with tf.variable_scope('FC_Hidden_layer_%d'%idx_layer):
             # Set kernel contraint if needed
             kern_const = None
             if spectral_normalization:
-                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Input_layer_u')
-            
-            h_nn[0] = tf.layers.dense(h_flat,
-                                      net_neurons_base,
-                                      activation=None,
-                                      use_bias=True,
-                                      kernel_initializer=None,
-                                      bias_initializer=tf.zeros_initializer(),
-                                      kernel_regularizer=None,
-                                      bias_regularizer=None,
-                                      activity_regularizer=None,
-                                      kernel_constraint=kern_const,
-                                      #bias_constraint=None,
-                                      trainable=True,
-                                      name='FC_Input_layer',
-                                      reuse=tf.AUTO_REUSE)
+                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Hidden_layer_%d'%idx_layer+'_u')
+
+            h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
+                                              net_neurons_base,
+                                              activation=None,
+                                              use_bias=True,
+                                              kernel_initializer=None,
+                                              bias_initializer=tf.zeros_initializer(),
+                                              kernel_regularizer=None,
+                                              bias_regularizer=None,
+                                              activity_regularizer=None,
+                                              kernel_constraint=kern_const,
+                                              #bias_constraint=None,
+                                              trainable=True,
+                                              name='FC_Hidden_layer_%d'%idx_layer,
+                                              reuse=tf.AUTO_REUSE)
+
 
             # Batch normalization
             if TF_DTYPE_USE == tf.float32:
-                h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase);
+                h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
             else:
-                h_nn[0] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[0],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #         h_nn[0] = tf.layers.batch_normalization(h_nn[0], training=phase, fused=False);
+                h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
+    #             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
             # Activation
-            h_nn[0] = net_base_activation_fcn(h_nn[0])
+            h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
 
-        # -- Rest of the layers
-        for idx_layer in range(1,net_layers_base):
+    # -- Final classification
+    with tf.variable_scope('FC_Output_layer'):
 
-            with tf.variable_scope('FC_Hidden_layer_%d'%idx_layer):
-                # Set kernel contraint if needed
-                kern_const = None
-                if spectral_normalization:
-                    kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Hidden_layer_%d'%idx_layer+'_u')
-
-                h_nn[idx_layer] = tf.layers.dense(h_nn[idx_layer-1],
-                                                  net_neurons_base,
-                                                  activation=None,
-                                                  use_bias=True,
-                                                  kernel_initializer=None,
-                                                  bias_initializer=tf.zeros_initializer(),
-                                                  kernel_regularizer=None,
-                                                  bias_regularizer=None,
-                                                  activity_regularizer=None,
-                                                  kernel_constraint=kern_const,
-                                                  #bias_constraint=None,
-                                                  trainable=True,
-                                                  name='FC_Hidden_layer_%d'%idx_layer,
-                                                  reuse=tf.AUTO_REUSE)
+        # Set kernel contraint if needed
+        kern_const = None
+        if spectral_normalization:
+            kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Output_layer_u')
 
 
-                # Batch normalization
-                if TF_DTYPE_USE == tf.float32:
-                    h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase);
-                else:
-                    h_nn[idx_layer] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[idx_layer],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #             h_nn[idx_layer] = tf.layers.batch_normalization(h_nn[idx_layer], training=phase, fused=False);
-                # Activation
-                h_nn[idx_layer] = net_base_activation_fcn(h_nn[idx_layer])
-
-        # -- Final classification
-        with tf.variable_scope('FC_Output_layer'):
-            
-            # Set kernel contraint if needed
-            kern_const = None
-            if spectral_normalization:
-                kern_const = lambda x: spectral_norm(x, iteration=1, nombre = 'FC_Output_layer_u')
-            
-
-            h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
-                                                    num_clases,
-                                                    activation=None,
-                                                    use_bias=True,
-                                                    kernel_initializer=None,
-                                                    bias_initializer=tf.zeros_initializer(),
-                                                    kernel_regularizer=None,
-                                                    bias_regularizer=None,
-                                                    activity_regularizer=None,
-                                                    kernel_constraint=kern_const,
-                                                    #bias_constraint=None,
-                                                    trainable=True,
-                                                    name='FC_Output_layer',
-                                                    reuse=tf.AUTO_REUSE)
+        h_nn[net_layers_base] = tf.layers.dense(h_nn[net_layers_base-1],
+                                                num_clases,
+                                                activation=None,
+                                                use_bias=True,
+                                                kernel_initializer=None,
+                                                bias_initializer=tf.zeros_initializer(),
+                                                kernel_regularizer=None,
+                                                bias_regularizer=None,
+                                                activity_regularizer=None,
+                                                kernel_constraint=kern_const,
+                                                #bias_constraint=None,
+                                                trainable=True,
+                                                name='FC_Output_layer',
+                                                reuse=tf.AUTO_REUSE)
 
 
-            # Batch normalization
-            if TF_DTYPE_USE == tf.float32:
-                h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
-            else:
-                h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
-        #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
-            
-            
+        # Batch normalization
+        if TF_DTYPE_USE == tf.float32:
+            h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase);
+        else:
+            h_nn[net_layers_base] = tf.dtypes.cast(tf.layers.batch_normalization(tf.dtypes.cast(h_nn[net_layers_base],dtype=tf.float32), training=phase),dtype=tf.float16);
+    #         h_nn[net_layers_base] = tf.layers.batch_normalization(h_nn[net_layers_base], training=phase, fused=False);
 
+
+    return h_nn
+    
+    
+    
     
 
-    # Probability output output
-    if num_clases > 1:
-        softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
+def Assemble_Classification_Network(ph_entry, 
+                                    phase, 
+                                    input_size, 
+                                    input_channels, 
+                                    num_clases, 
+                                    size_filt_fine, 
+                                    network_depth, 
+                                    net_channels_down, 
+                                    net_layers_down, 
+                                    net_neurons_base, 
+                                    net_layers_base,
+                                    net_base_activation_fcn = tf.nn.sigmoid,
+                                    spectral_normalization = False,
+                                    all_outs = False):
+    
+    with tf.variable_scope('Convolutional_layers'):
+        (x_vol,
+         h_down, 
+         h_relu_down, 
+         h_flat) = Assemble_Classification_Featuring_Network(ph_entry, 
+                                                             phase, 
+                                                             input_size, 
+                                                             input_channels, 
+                                                             size_filt_fine, 
+                                                             network_depth, 
+                                                             net_channels_down, 
+                                                             net_layers_down, 
+                                                             spectral_normalization = spectral_normalization)
+
+    with tf.variable_scope('Dense_layers'):
+
+            
+        h_nn = Assemble_Classification_FC(h_flat,
+                                          phase,
+                                          num_clases,
+                                          net_neurons_base,
+                                          net_layers_base,
+                                          net_base_activation_fcn = tf.nn.sigmoid,
+                                         spectral_normalization = spectral_normalization)
+    
+
+    with tf.variable_scope('output_prob'):
+        # Probability output output
+        if num_clases > 1:
+            softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
+        else:
+            # If there is only one class, the output must be sigmoid
+            softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
+
+    
+    # And we return the network topology
+    if all_outs:
+        return softmax_out, h_nn[net_layers_base], h_nn, h_flat, h_down, h_relu_down
     else:
-        # If there is only one class, the output must be sigmoid
-        softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
+        return softmax_out, h_nn[net_layers_base]
+    
+    
+    
+
+
+def Assemble_MultiScale_Classification_Network(list_entry, 
+                                               phase, 
+                                               input_size, 
+                                               input_channels, 
+                                               num_clases, 
+                                               size_filt_fine, 
+                                               network_depth, 
+                                               net_channels_down, 
+                                               net_layers_down, 
+                                               net_neurons_base, 
+                                               net_layers_base,
+                                               net_base_activation_fcn = tf.nn.sigmoid,
+                                               spectral_normalization = False,
+                                               all_outs = False):
+    
+    
+    with tf.variable_scope('Convolutional_layers'):
+        (x_vol,
+         h_down, 
+         h_relu_down, 
+         h_flat) = Assemble_Muliscale_Classification_Featuring_Network(list_entry, 
+                                                                       phase, 
+                                                                       input_size, 
+                                                                       input_channels, 
+                                                                       size_filt_fine, 
+                                                                       network_depth, 
+                                                                       net_channels_down, 
+                                                                       net_layers_down, 
+                                                                       spectral_normalization = spectral_normalization)
+      
+        
+    with tf.variable_scope('Dense_layers'):
+            
+        h_nn = Assemble_Classification_FC(h_flat,
+                                          phase,
+                                          num_clases,
+                                          net_neurons_base,
+                                          net_layers_base,
+                                          net_base_activation_fcn = tf.nn.sigmoid,
+                                          spectral_normalization = spectral_normalization)
+    
+
+    with tf.variable_scope('output_prob'):
+        # Probability output output
+        if num_clases > 1:
+            softmax_out = tf.nn.softmax(net_base_activation_fcn(h_nn[net_layers_base]),-1)
+        else:
+            # If there is only one class, the output must be sigmoid
+            softmax_out = tf.nn.sigmoid(h_nn[net_layers_base])
     
     
     # And we return the network topology
@@ -1249,7 +1230,7 @@ def Assemble_MultiScale_Classification_Network(list_entry,
     else:
         return softmax_out, h_nn[net_layers_base]
     
-   
+    
 def Pixel_ClassNet(pixel_in, num_hidden_units, num_layers, num_clases_out, acivation_fcn = tf.nn.sigmoid):
     
     h_nn = OrderedDict()
